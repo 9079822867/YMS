@@ -1,0 +1,27 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+*.nupkg
+
+## SECURITY — never commit live credentials
+src/YMS.API/appsettings.json
+src/YMS.API/appsettings.Production.json
+
+## Keep the template (no real credentials)
+!src/YMS.API/appsettings.Development.json
+
+## EF Core migrations output (optional — remove if you want migrations in git)
+# src/YMS.Infrastructure/Data/Migrations/
+
+## Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+## Logs
+*.log
+logs/

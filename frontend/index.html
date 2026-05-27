@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YMS Pro - Yard Inventory Management</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: { primary: '#1e3a5f' }
+        }
+      }
+    }
+  </script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:11px; font-weight:600; color:#fff; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }
+  </style>
+</head>
+<body class="bg-gray-100">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback } = React;
+
+/* ── Mock Data ── */
+const MOCK_VEHICLES = Array.from({ length: 47 }, (_, i) => ({
+  id: 2021 + i,
+  loanNumber: `0${33 + i}43${900 + i}`,
+  clientName: ['HDFC Bank','ICICI Bank','Axis Bank','SBI','Kotak Bank'][i % 5],
+  yardName: ['Mumbai Yard','Pune Yard','Jaipur Yard','Delhi Yard','Chennai Yard'][i % 5],
+  yardCity: ['Mumbai','Pune','Jaipur','Delhi','Chennai'][i % 5],
+  yardState: ['Maharashtra','Maharashtra','Rajasthan','Delhi','Tamil Nadu'][i % 5],
+  vehicleType: ['Car','Bike','Car','Truck','Car'][i % 5],
+  registrationNumber: `${['MH','RJ','DL','TN','GJ'][i%5]}${String(i+1).padStart(2,'0')}AB${1000+i}`,
+  chassisNumber: `SSR${500000+i}`,
+  engineNumber: `ENG${100000+i}`,
+  entryDate: new Date(2024, 11, 10 + (i % 20)).toISOString(),
+  runningStatus: i % 3 === 0 ? 'Red/Idle' : 'Running',
+  keyStatus: i % 4 === 0 ? 'No' : 'Yes',
+  rcStatus: i % 3 === 0 ? 'Pending' : 'Submitted',
+  parkingCharges: 450,
+}));
+
+const MOCK_STATS = {
+  totalVehicles: 1245, runningVehicles: 845,
+  idleVehicles: 210, pendingRc: 190,
+  submittedReports: 87, activeYards: 15,
+  totalParkingCharges: 560250
+};
+
+/* ── Status Badges ── */
+const RUNNING_COLORS = { 'Running':'bg-green-600','Red/Idle':'bg-red-600','Auctioned':'bg-purple-600','Released':'bg-blue-500','Sold':'bg-teal-600','Scrap':'bg-gray-500' };
+const KEY_COLORS = { 'Yes':'bg-yellow-500','No':'bg-orange-500','Duplicate Key':'bg-amber-600','Missing':'bg-red-500' };
+const RC_COLORS = { 'Submitted':'bg-blue-600','Pending':'bg-gray-400','Not Available':'bg-red-400','Duplicate':'bg-orange-600' };
+
+const Badge = ({ text, colorMap }) => (
+  <span className={`badge ${colorMap[text] || 'bg-gray-400'}`}>{text}</span>
+);
+
+/* ── Header ── */
+const Header = ({ user, onLogout, onNav }) => (
+  <header className="bg-blue-950 text-white px-6 py-3 flex justify-between items-center shadow-lg">
+    <div className="flex items-center gap-3 cursor-pointer" onClick={() => onNav('dashboard')}>
+      <div className="bg-white text-blue-950 font-bold rounded-lg px-3 py-1.5 text-sm">Y</div>
+      <h1 className="text-xl font-bold tracking-wide">YMS Pro</h1>
+    </div>
+    <div className="flex items-center gap-4">
+      <button onClick={() => onNav('dashboard')} className="bg-blue-800 hover:bg-blue-700 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors">
+        Admin Panel
+      </button>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-blue-200">{user?.name}</span>
+        <button onClick={onLogout} className="w-9 h-9 rounded-full bg-white text-blue-950 flex items-center justify-center font-bold text-sm hover:bg-blue-100 transition-colors" title="Logout">
+          JD
+        </button>
+      </div>
+    </div>
+  </header>
+);
+
+/* ── Stats Card ── */
+const StatsCard = ({ label, value, color = 'text-gray-800' }) => (
+  <div className="bg-white rounded-2xl shadow-md p-5">
+    <p className="text-gray-500 text-sm">{label}</p>
+    <h2 className={`text-3xl font-bold mt-1 ${color}`}>{value?.toLocaleString() ?? '—'}</h2>
+  </div>
+);
+
+/* ── Login Page ── */
+const Login = ({ onLogin }) => {
+  const [email, setEmail] = useState('admin@yms.com');
+  const [password, setPassword] = useState('Admin@123');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault(); setError('');
+    setLoading(true);
+    setTimeout(() => {
+      if (email === 'admin@yms.com' && password === 'Admin@123') {
+        onLogin({ name: 'Admin User', role: 'Admin', email });
+      } else {
+        setError('Invalid email or password');
+        setLoading(false);
+      }
+    }, 600);
+  };
+
+  return (
+    <div className="min-h-screen bg-blue-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-2xl mb-4">
+            <span className="text-blue-950 text-2xl font-bold">Y</span>
+          </div>
+          <h1 className="text-3xl font-bold text-white">YMS Pro</h1>
+          <p className="text-blue-300 mt-1">Yard Inventory Management System</p>
+        </div>
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-6">Sign In</h2>
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4 text-sm">{error}</div>}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input type="email" required value={email} onChange={e => setEmail(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input type="password" required value={password} onChange={e => setPassword(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <button type="submit" disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors mt-2">
+              {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
+          <p className="text-center text-xs text-gray-400 mt-6">Default: admin@yms.com / Admin@123</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── Dashboard Page ── */
+const Dashboard = ({ onNav }) => (
+  <div className="p-6">
+    <div className="flex items-center justify-between mb-6">
+      <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+      <button onClick={() => onNav('inventory')} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+        View Inventory →
+      </button>
+    </div>
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+      <StatsCard label="Total Vehicles" value={MOCK_STATS.totalVehicles} />
+      <StatsCard label="Running" value={MOCK_STATS.runningVehicles} color="text-green-600" />
+      <StatsCard label="Red / Idle" value={MOCK_STATS.idleVehicles} color="text-red-600" />
+      <StatsCard label="Pending RC" value={MOCK_STATS.pendingRc} color="text-yellow-600" />
+    </div>
+    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <StatsCard label="Submitted Reports" value={MOCK_STATS.submittedReports} color="text-blue-600" />
+      <StatsCard label="Active Yards" value={MOCK_STATS.activeYards} />
+      <StatsCard label="Total Parking Charges (₹)" value={MOCK_STATS.totalParkingCharges.toLocaleString('en-IN', { maximumFractionDigits:0 })} />
+    </div>
+  </div>
+);
+
+/* ── Inventory Page ── */
+const defaultFilters = { clientName:'', state:'', yardName:'', vehicleType:'', loanNumber:'', registrationNumber:'', chassisNumber:'', runningStatus:'', rcStatus:'', entryFrom:'', entryTo:'' };
+
+const Inventory = ({ onNav }) => {
+  const [filters, setFilters] = useState(defaultFilters);
+  const [applied, setApplied] = useState(defaultFilters);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  const filtered = MOCK_VEHICLES.filter(v => {
+    if (applied.clientName && !v.clientName.toLowerCase().includes(applied.clientName.toLowerCase())) return false;
+    if (applied.state && v.yardState !== applied.state) return false;
+    if (applied.yardName && !v.yardName.toLowerCase().includes(applied.yardName.toLowerCase())) return false;
+    if (applied.vehicleType && v.vehicleType !== applied.vehicleType) return false;
+    if (applied.loanNumber && !v.loanNumber.includes(applied.loanNumber)) return false;
+    if (applied.registrationNumber && !v.registrationNumber.includes(applied.registrationNumber.toUpperCase())) return false;
+    if (applied.chassisNumber && !v.chassisNumber.includes(applied.chassisNumber.toUpperCase())) return false;
+    if (applied.runningStatus && v.runningStatus !== applied.runningStatus) return false;
+    if (applied.rcStatus && v.rcStatus !== applied.rcStatus) return false;
+    return true;
+  });
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paged = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const set = (k, v) => setFilters(f => ({ ...f, [k]: v }));
+
+  const handleSearch = () => { setPage(1); setApplied({ ...filters }); };
+  const handleClear = () => { setFilters(defaultFilters); setApplied(defaultFilters); setPage(1); };
+
+  const states = ['Maharashtra','Rajasthan','Delhi','Tamil Nadu','Gujarat','Karnataka'];
+  const types = ['Car','Bike','Truck','Bus','Auto','Van'];
+  const statuses = ['Running','Red/Idle','Auctioned','Released','Sold','Scrap'];
+
+  return (
+    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white shadow-lg p-4 overflow-y-auto flex-shrink-0 border-r">
+        <h2 className="text-base font-bold mb-4 flex items-center gap-2 text-gray-800">
+          <span className="text-blue-600">☰</span> Search Filters
+        </h2>
+        <div className="space-y-3 text-xs">
+          {[{l:'Client Name',k:'clientName',ph:'Client name'},{l:'Loan Number',k:'loanNumber',ph:'Loan number'},{l:'Registration No',k:'registrationNumber',ph:'e.g. MH01AB1234'},{l:'Chassis No',k:'chassisNumber',ph:'Chassis number'},{l:'Yard Name',k:'yardName',ph:'Yard name'}].map(({l,k,ph}) => (
+            <div key={k}>
+              <label className="block font-semibold text-gray-600 mb-1">{l}</label>
+              <input className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
+                placeholder={ph} value={filters[k]} onChange={e => set(k, e.target.value)} />
+            </div>
+          ))}
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">State</label>
+            <select className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" value={filters.state} onChange={e => set('state', e.target.value)}>
+              <option value="">All States</option>
+              {states.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Vehicle Type</label>
+            <select className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" value={filters.vehicleType} onChange={e => set('vehicleType', e.target.value)}>
+              <option value="">All Types</option>
+              {types.map(t => <option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Running Status</label>
+            <select className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" value={filters.runningStatus} onChange={e => set('runningStatus', e.target.value)}>
+              <option value="">All</option>
+              {statuses.map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">RC Status</label>
+            <select className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" value={filters.rcStatus} onChange={e => set('rcStatus', e.target.value)}>
+              <option value="">All</option>
+              {['Submitted','Pending','Not Available','Duplicate'].map(s => <option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Entry From</label>
+            <input type="date" className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" value={filters.entryFrom} onChange={e => set('entryFrom', e.target.value)} />
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Entry To</label>
+            <input type="date" className="w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs" value={filters.entryTo} onChange={e => set('entryTo', e.target.value)} />
+          </div>
+          <button onClick={handleSearch} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-xl text-xs transition-colors">
+            Search
+          </button>
+          <button onClick={handleClear} className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-xl text-xs transition-colors">
+            Clear Filters
+          </button>
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+          {/* Toolbar */}
+          <div className="flex items-center justify-between px-5 py-3 border-b">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-700">Search Results</span>
+              <span className="text-sm text-gray-500">({filtered.length.toLocaleString()} found)</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => onNav('newentry')} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
+                + New Entry
+              </button>
+              <button className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
+                Export Excel
+              </button>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[1000px]">
+              <thead className="bg-blue-600 text-white">
+                <tr>
+                  {['#','Yard ID','Client Name','Loan No','Yard Name','City','State','Type','Reg No','Chassis No','Entry Date','Running Status','Key','RC Status','Charges','Action'].map(h => (
+                    <th key={h} className="px-3 py-3 text-left font-semibold whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {paged.length === 0 ? (
+                  <tr><td colSpan={16} className="text-center py-16 text-gray-400">No records found</td></tr>
+                ) : paged.map((v, i) => (
+                  <tr key={v.id} className="border-b hover:bg-blue-50 transition-colors">
+                    <td className="px-3 py-2 text-gray-500">{(page-1)*pageSize+i+1}</td>
+                    <td className="px-3 py-2 font-mono">{v.id}</td>
+                    <td className="px-3 py-2">{v.clientName}</td>
+                    <td className="px-3 py-2 font-mono">{v.loanNumber}</td>
+                    <td className="px-3 py-2">{v.yardName}</td>
+                    <td className="px-3 py-2">{v.yardCity}</td>
+                    <td className="px-3 py-2">{v.yardState}</td>
+                    <td className="px-3 py-2">{v.vehicleType}</td>
+                    <td className="px-3 py-2 font-mono">{v.registrationNumber}</td>
+                    <td className="px-3 py-2 font-mono">{v.chassisNumber}</td>
+                    <td className="px-3 py-2">{new Date(v.entryDate).toLocaleDateString('en-IN')}</td>
+                    <td className="px-3 py-2"><Badge text={v.runningStatus} colorMap={RUNNING_COLORS} /></td>
+                    <td className="px-3 py-2"><Badge text={v.keyStatus} colorMap={KEY_COLORS} /></td>
+                    <td className="px-3 py-2"><Badge text={v.rcStatus} colorMap={RC_COLORS} /></td>
+                    <td className="px-3 py-2 font-semibold">₹{v.parkingCharges}</td>
+                    <td className="px-3 py-2">
+                      <button className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-lg transition-colors">
+                        View/Edit
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination */}
+          <div className="flex items-center justify-between px-5 py-3 border-t text-xs text-gray-600">
+            <div className="flex items-center gap-2">
+              <span>Show</span>
+              <select className="border rounded px-2 py-1" value={pageSize} onChange={e => { setPageSize(Number(e.target.value)); setPage(1); }}>
+                {[10,25,50].map(s => <option key={s}>{s}</option>)}
+              </select>
+              <span>entries</span>
+            </div>
+            <div className="flex items-center gap-1">
+              <button className="px-3 py-1 rounded border hover:bg-gray-100 disabled:opacity-40" onClick={() => setPage(p => Math.max(1,p-1))} disabled={page===1}>Previous</button>
+              {Array.from({length:Math.min(5,totalPages)},(_,i) => {
+                const p = Math.max(1,Math.min(page-2,totalPages-4))+i;
+                return <button key={p} onClick={() => setPage(p)} className={`px-3 py-1 rounded border ${page===p?'bg-blue-600 text-white border-blue-600':'hover:bg-gray-100'}`}>{p}</button>;
+              })}
+              <button className="px-3 py-1 rounded border hover:bg-gray-100 disabled:opacity-40" onClick={() => setPage(p => Math.min(totalPages,p+1))} disabled={page===totalPages}>Next</button>
+            </div>
+            <span>Page {page} of {totalPages}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── New Entry Page ── */
+const NewEntry = ({ onBack }) => {
+  const [form, setForm] = useState({ clientId:'1', yardId:'1', loanNumber:'', registrationNumber:'', chassisNumber:'', engineNumber:'', vehicleType:'Car', runningStatus:'Running', keyStatus:'Yes', rcStatus:'Pending', parkingCharges:'450' });
+  const [saved, setSaved] = useState(false);
+  const set = (k,v) => setForm(f => ({...f,[k]:v}));
+
+  if (saved) return (
+    <div className="p-6 max-w-lg mx-auto mt-10 text-center">
+      <div className="bg-white rounded-2xl shadow-md p-10">
+        <div className="text-5xl mb-4">✅</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Entry Saved!</h2>
+        <p className="text-gray-500 text-sm mb-6">Vehicle <strong>{form.registrationNumber}</strong> added successfully.</p>
+        <button onClick={onBack} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-lg">Back to Inventory</button>
+      </div>
+    </div>
+  );
+
+  const Section = ({title,children}) => (
+    <div className="bg-white rounded-2xl shadow-md p-5 mb-4">
+      <h3 className="font-semibold text-gray-600 mb-4 pb-2 border-b text-xs uppercase tracking-wide">{title}</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{children}</div>
+    </div>
+  );
+  const Field = ({label,children}) => (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+  const inp = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-2xl font-bold">New Inventory Entry</h2>
+        <button onClick={onBack} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-4 py-2 rounded-lg text-sm">← Back</button>
+      </div>
+      <form onSubmit={e => { e.preventDefault(); setSaved(true); }}>
+        <Section title="Loan & Ownership">
+          <Field label="Client *">
+            <select required className={inp} value={form.clientId} onChange={e => set('clientId',e.target.value)}>
+              {[['1','HDFC Bank'],['2','ICICI Bank'],['3','Axis Bank'],['4','SBI'],['5','Kotak Bank']].map(([id,n]) => <option key={id} value={id}>{n}</option>)}
+            </select>
+          </Field>
+          <Field label="Loan Number *"><input required className={inp} value={form.loanNumber} onChange={e => set('loanNumber',e.target.value)} placeholder="e.g. 03343955" /></Field>
+          <Field label="Customer Name"><input className={inp} placeholder="Full name" /></Field>
+          <Field label="Branch Name"><input className={inp} placeholder="Branch" /></Field>
+          <Field label="Repo Date"><input type="date" className={inp} /></Field>
+        </Section>
+        <Section title="Vehicle Information">
+          <Field label="Registration No *"><input required className={inp+" uppercase"} value={form.registrationNumber} onChange={e => set('registrationNumber',e.target.value.toUpperCase())} placeholder="MH01AB1234" /></Field>
+          <Field label="Chassis No *"><input required className={inp+" uppercase"} value={form.chassisNumber} onChange={e => set('chassisNumber',e.target.value.toUpperCase())} placeholder="CHASSIS001" /></Field>
+          <Field label="Engine No *"><input required className={inp} value={form.engineNumber} onChange={e => set('engineNumber',e.target.value.toUpperCase())} placeholder="ENGINE001" /></Field>
+          <Field label="Vehicle Type *">
+            <select required className={inp} value={form.vehicleType} onChange={e => set('vehicleType',e.target.value)}>
+              {['Car','Bike','Truck','Bus','Auto','Van'].map(t => <option key={t}>{t}</option>)}
+            </select>
+          </Field>
+          <Field label="Make"><input className={inp} placeholder="e.g. Maruti" /></Field>
+          <Field label="Model"><input className={inp} placeholder="e.g. Swift" /></Field>
+          <Field label="Fuel Type">
+            <select className={inp}>
+              <option value="">Select</option>
+              {['Petrol','Diesel','CNG','Electric','Hybrid'].map(f => <option key={f}>{f}</option>)}
+            </select>
+          </Field>
+          <Field label="Manufacturing Year"><input type="number" min="2000" max="2030" className={inp} placeholder="2022" /></Field>
+          <Field label="Color"><input className={inp} placeholder="e.g. White" /></Field>
+        </Section>
+        <Section title="Yard & Status">
+          <Field label="Yard *">
+            <select required className={inp} value={form.yardId} onChange={e => set('yardId',e.target.value)}>
+              {[['1','Mumbai Yard'],['2','Pune Yard'],['3','Jaipur Yard'],['4','Delhi Yard'],['5','Chennai Yard']].map(([id,n]) => <option key={id} value={id}>{n}</option>)}
+            </select>
+          </Field>
+          <Field label="Running Status">
+            <select className={inp} value={form.runningStatus} onChange={e => set('runningStatus',e.target.value)}>
+              {['Running','Red/Idle','Auctioned','Released','Sold','Scrap'].map(s => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Key Status">
+            <select className={inp} value={form.keyStatus} onChange={e => set('keyStatus',e.target.value)}>
+              {['Yes','No','Duplicate Key','Missing'].map(s => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="RC Status">
+            <select className={inp} value={form.rcStatus} onChange={e => set('rcStatus',e.target.value)}>
+              {['Submitted','Pending','Not Available','Duplicate'].map(s => <option key={s}>{s}</option>)}
+            </select>
+          </Field>
+          <Field label="Odometer (km)"><input type="number" min="0" className={inp} placeholder="e.g. 45000" /></Field>
+          <Field label="Insurance">
+            <div className="flex items-center gap-2 mt-2">
+              <input type="checkbox" id="ins" className="w-4 h-4" />
+              <label htmlFor="ins" className="text-sm text-gray-700">Available</label>
+            </div>
+          </Field>
+        </Section>
+        <Section title="Charges (₹)">
+          <Field label="Parking Charges"><input type="number" min="0" className={inp} value={form.parkingCharges} onChange={e => set('parkingCharges',e.target.value)} /></Field>
+          <Field label="Towing Charges"><input type="number" min="0" className={inp} placeholder="0" /></Field>
+          <Field label="Misc Charges"><input type="number" min="0" className={inp} placeholder="0" /></Field>
+        </Section>
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={onBack} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-6 py-2 rounded-lg">Cancel</button>
+          <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-8 py-2 rounded-lg">Save Entry</button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+/* ── App ── */
+const App = () => {
+  const [page, setPage] = useState('login');
+  const [user, setUser] = useState(null);
+
+  const handleLogin = (u) => { setUser(u); setPage('dashboard'); };
+  const handleLogout = () => { setUser(null); setPage('login'); };
+
+  if (page === 'login') return <Login onLogin={handleLogin} />;
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header user={user} onLogout={handleLogout} onNav={setPage} />
+      {page === 'dashboard' && <Dashboard onNav={setPage} />}
+      {page === 'inventory' && <Inventory onNav={setPage} />}
+      {page === 'newentry' && <NewEntry onBack={() => setPage('inventory')} />}
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
