@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>YMS Pro - Yard Inventory Management</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { font-family: Inter, system-ui, sans-serif; }
+    .badge { display:inline-block; padding:2px 10px; border-radius:9999px; font-size:11px; font-weight:600; color:#fff; }
+    ::-webkit-scrollbar { width:6px; height:6px; }
+    ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:3px; }
+  </style>
+</head>
+<body class="bg-gray-100">
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useCallback, useRef } = React;
+
+/* ── API helpers ── */
+const getToken = () => localStorage.getItem('yms_token');
+const apiFetch = async (url, opts = {}) => {
+  const token = getToken();
+  const res = await fetch(url, {
+    ...opts,
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(opts.headers || {}),
+    },
+  });
+  if (res.status === 401) {
+    localStorage.removeItem('yms_token');
+    localStorage.removeItem('yms_user');
+    window.location.reload();
+  }
+  return res;
+};
+
+/* ── Status badge colours ── */
+const RUNNING = { Running:'bg-green-600','Red/Idle':'bg-red-600',Auctioned:'bg-purple-600',Released:'bg-blue-500',Sold:'bg-teal-600',Scrap:'bg-gray-500' };
+const KEY     = { Yes:'bg-yellow-500',No:'bg-orange-500','Duplicate Key':'bg-amber-600',Missing:'bg-red-500' };
+const RC      = { Submitted:'bg-blue-600',Pending:'bg-gray-400','Not Available':'bg-red-400',Duplicate:'bg-orange-600' };
+const Badge = ({ text, map }) => <span className={`badge ${map[text]||'bg-gray-400'}`}>{text}</span>;
+
+/* ── Spinner ── */
+const Spinner = () => (
+  <div className="flex justify-center py-20">
+    <div className="h-10 w-10 animate-spin rounded-full border-4 border-blue-200 border-t-blue-600" />
+  </div>
+);
+
+/* ── Header ── */
+const Header = ({ user, onLogout, onNav }) => {
+  const initials = user?.fullName?.split(' ').map(n=>n[0]).join('').toUpperCase().slice(0,2) || 'JD';
+  return (
+    <header className="bg-blue-950 text-white px-6 py-3 flex justify-between items-center shadow-lg">
+      <div className="flex items-center gap-3 cursor-pointer" onClick={()=>onNav('dashboard')}>
+        <div className="bg-white text-blue-950 font-bold rounded-lg px-3 py-1.5 text-sm">Y</div>
+        <h1 className="text-xl font-bold">YMS Pro</h1>
+      </div>
+      <div className="flex items-center gap-4">
+        {user?.role === 'Admin' && (
+          <a href="/swagger" target="_blank"
+            className="bg-blue-800 hover:bg-blue-700 px-4 py-1.5 rounded-xl text-sm font-medium transition-colors">
+            API Docs
+          </a>
+        )}
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-blue-200">{user?.fullName}</span>
+          <button onClick={onLogout}
+            className="w-9 h-9 rounded-full bg-white text-blue-950 flex items-center justify-center font-bold text-sm hover:bg-blue-100 transition-colors"
+            title="Logout">
+            {initials}
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+};
+
+/* ── Login ── */
+const Login = ({ onLogin }) => {
+  const [form, setForm] = useState({ email:'admin@yms.com', password:'Admin@123' });
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setError(''); setLoading(true);
+    try {
+      const res = await fetch('/api/auth/login', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(form),
+      });
+      if (!res.ok) { setError('Invalid email or password'); return; }
+      const data = await res.json();
+      localStorage.setItem('yms_token', data.token);
+      localStorage.setItem('yms_user', JSON.stringify({ fullName:data.fullName, email:data.email, role:data.role }));
+      onLogin({ fullName:data.fullName, email:data.email, role:data.role });
+    } catch { setError('Cannot connect to server'); }
+    finally { setLoading(false); }
+  };
+
+  return (
+    <div className="min-h-screen bg-blue-950 flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-14 h-14 bg-white rounded-2xl mb-4">
+            <span className="text-blue-950 text-2xl font-bold">Y</span>
+          </div>
+          <h1 className="text-3xl font-bold text-white">YMS Pro</h1>
+          <p className="text-blue-300 mt-1">Yard Inventory Management System</p>
+        </div>
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          <h2 className="text-xl font-bold text-gray-800 mb-6">Sign In</h2>
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4 text-sm">{error}</div>}
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+              <input type="email" required value={form.email} onChange={e=>setForm({...form,email:e.target.value})}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
+              <input type="password" required value={form.password} onChange={e=>setForm({...form,password:e.target.value})}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <button type="submit" disabled={loading}
+              className="w-full bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold py-2.5 rounded-lg transition-colors mt-2">
+              {loading ? 'Signing in…' : 'Sign In'}
+            </button>
+          </form>
+          <p className="text-center text-xs text-gray-400 mt-6">Default: admin@yms.com / Admin@123</p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── Dashboard ── */
+const Dashboard = ({ onNav }) => {
+  const [stats, setStats] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiFetch('/api/dashboard/stats')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setStats(d))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const Card = ({ label, value, color='text-gray-800' }) => (
+    <div className="bg-white rounded-2xl shadow-md p-5">
+      <p className="text-gray-500 text-sm">{label}</p>
+      <h2 className={`text-3xl font-bold mt-1 ${color}`}>
+        {value !== undefined && value !== null ? Number(value).toLocaleString('en-IN') : '—'}
+      </h2>
+    </div>
+  );
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+        <button onClick={()=>onNav('inventory')} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm">
+          View Inventory →
+        </button>
+      </div>
+      {loading ? <Spinner /> : (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+            <Card label="Total Vehicles"   value={stats?.totalVehicles} />
+            <Card label="Running"          value={stats?.runningVehicles} color="text-green-600" />
+            <Card label="Red / Idle"       value={stats?.idleVehicles}   color="text-red-600" />
+            <Card label="Pending RC"       value={stats?.pendingRc}      color="text-yellow-600" />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <Card label="Submitted Reports"      value={stats?.submittedReports} color="text-blue-600" />
+            <Card label="Active Yards"           value={stats?.activeYards} />
+            <Card label="Total Parking (₹)"      value={stats?.totalParkingCharges} />
+          </div>
+        </>
+      )}
+    </div>
+  );
+};
+
+/* ── Inventory ── */
+const DEFAULT_FILTERS = { clientName:'',state:'',yardName:'',yardCity:'',vehicleType:'',loanNumber:'',registrationNumber:'',chassisNumber:'',engineNumber:'',runningStatus:'',keyStatus:'',rcStatus:'',entryFrom:'',entryTo:'' };
+
+const Inventory = ({ onNav }) => {
+  const [filters, setFilters] = useState(DEFAULT_FILTERS);
+  const [applied, setApplied] = useState(DEFAULT_FILTERS);
+  const [data, setData]       = useState({ items:[], totalCount:0, totalPages:1 });
+  const [page, setPage]       = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [loading, setLoading] = useState(false);
+  const [masters, setMasters] = useState({ states:[], vehicleTypes:[], runningStatuses:[] });
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch('/api/masters/states').then(r=>r.json()),
+      apiFetch('/api/masters/vehicle-types').then(r=>r.json()),
+      apiFetch('/api/masters/running-statuses').then(r=>r.json()),
+    ]).then(([states, vehicleTypes, runningStatuses]) =>
+      setMasters({ states, vehicleTypes, runningStatuses })
+    ).catch(()=>{});
+  }, []);
+
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams({ page, pageSize });
+      Object.entries(applied).forEach(([k,v]) => { if(v) params.append(k,v); });
+      const res = await apiFetch(`/api/inventory?${params}`);
+      if (res.ok) setData(await res.json());
+    } catch {}
+    finally { setLoading(false); }
+  }, [applied, page, pageSize]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const set = (k,v) => setFilters(f=>({...f,[k]:v}));
+  const handleSearch = () => { setPage(1); setApplied({...filters}); };
+  const handleClear  = () => { setFilters(DEFAULT_FILTERS); setApplied(DEFAULT_FILTERS); setPage(1); };
+
+  const inp = "w-full border border-gray-300 rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500";
+
+  return (
+    <div className="flex h-[calc(100vh-56px)] overflow-hidden">
+      {/* Sidebar */}
+      <aside className="w-64 bg-white shadow-lg p-4 overflow-y-auto flex-shrink-0 border-r">
+        <h2 className="text-base font-bold mb-4 flex items-center gap-2 text-gray-800">
+          <span className="text-blue-600">☰</span> Search Filters
+        </h2>
+        <div className="space-y-3 text-xs">
+          {[
+            {l:'Client Name',k:'clientName',ph:'Client name'},
+            {l:'Loan Number',k:'loanNumber',ph:'Loan number'},
+            {l:'Registration No',k:'registrationNumber',ph:'e.g. MH01AB1234'},
+            {l:'Chassis No',k:'chassisNumber',ph:'Chassis number'},
+            {l:'Engine No',k:'engineNumber',ph:'Engine number'},
+            {l:'Yard Name',k:'yardName',ph:'Yard name'},
+            {l:'Yard City',k:'yardCity',ph:'City'},
+          ].map(({l,k,ph})=>(
+            <div key={k}>
+              <label className="block font-semibold text-gray-600 mb-1">{l}</label>
+              <input className={inp} placeholder={ph} value={filters[k]} onChange={e=>set(k,e.target.value)} />
+            </div>
+          ))}
+
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">State</label>
+            <select className={inp} value={filters.state} onChange={e=>set('state',e.target.value)}>
+              <option value="">All States</option>
+              {masters.states.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Vehicle Type</label>
+            <select className={inp} value={filters.vehicleType} onChange={e=>set('vehicleType',e.target.value)}>
+              <option value="">All Types</option>
+              {masters.vehicleTypes.map(t=><option key={t}>{t}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Running Status</label>
+            <select className={inp} value={filters.runningStatus} onChange={e=>set('runningStatus',e.target.value)}>
+              <option value="">All</option>
+              {masters.runningStatuses.map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Key Status</label>
+            <select className={inp} value={filters.keyStatus} onChange={e=>set('keyStatus',e.target.value)}>
+              <option value="">All</option>
+              {['Yes','No','Duplicate Key','Missing'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">RC Status</label>
+            <select className={inp} value={filters.rcStatus} onChange={e=>set('rcStatus',e.target.value)}>
+              <option value="">All</option>
+              {['Submitted','Pending','Not Available','Duplicate'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Entry From</label>
+            <input type="date" className={inp} value={filters.entryFrom} onChange={e=>set('entryFrom',e.target.value)} />
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Entry To</label>
+            <input type="date" className={inp} value={filters.entryTo} onChange={e=>set('entryTo',e.target.value)} />
+          </div>
+
+          <button onClick={handleSearch} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-xl text-xs transition-colors">
+            Search
+          </button>
+          <button onClick={handleClear} className="w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold py-2 rounded-xl text-xs transition-colors">
+            Clear Filters
+          </button>
+        </div>
+      </aside>
+
+      {/* Main content */}
+      <div className="flex-1 p-4 overflow-y-auto">
+        <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+          {/* Toolbar */}
+          <div className="flex items-center justify-between px-5 py-3 border-b">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-700">Search Results</span>
+              {!loading && <span className="text-sm text-gray-500">({data.totalCount.toLocaleString()} found)</span>}
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={()=>onNav('newentry')} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
+                + New Entry
+              </button>
+              <button className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
+                Export Excel
+              </button>
+            </div>
+          </div>
+
+          {loading ? <Spinner /> : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs min-w-[1050px]">
+                  <thead className="bg-blue-600 text-white">
+                    <tr>
+                      {['#','Yard ID','Client','Loan No','Yard','City','State','Type','Reg No','Chassis','Entry Date','Running','Key','RC','Charges','Action'].map(h=>(
+                        <th key={h} className="px-3 py-3 text-left font-semibold whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.items.length === 0 ? (
+                      <tr><td colSpan={16} className="text-center py-16 text-gray-400">No records found</td></tr>
+                    ) : data.items.map((v,i)=>(
+                      <tr key={v.id} className="border-b hover:bg-blue-50 transition-colors">
+                        <td className="px-3 py-2 text-gray-500">{(page-1)*pageSize+i+1}</td>
+                        <td className="px-3 py-2 font-mono">{v.id}</td>
+                        <td className="px-3 py-2">{v.clientName}</td>
+                        <td className="px-3 py-2 font-mono">{v.loanNumber}</td>
+                        <td className="px-3 py-2">{v.yardName}</td>
+                        <td className="px-3 py-2">{v.yardCity}</td>
+                        <td className="px-3 py-2">{v.yardState}</td>
+                        <td className="px-3 py-2">{v.vehicleType}</td>
+                        <td className="px-3 py-2 font-mono">{v.registrationNumber}</td>
+                        <td className="px-3 py-2 font-mono">{v.chassisNumber}</td>
+                        <td className="px-3 py-2">{new Date(v.entryDate).toLocaleDateString('en-IN')}</td>
+                        <td className="px-3 py-2"><Badge text={v.runningStatus} map={RUNNING} /></td>
+                        <td className="px-3 py-2"><Badge text={v.keyStatus} map={KEY} /></td>
+                        <td className="px-3 py-2"><Badge text={v.rcStatus} map={RC} /></td>
+                        <td className="px-3 py-2 font-semibold">₹{v.parkingCharges}</td>
+                        <td className="px-3 py-2">
+                          <button onClick={()=>onNav('detail', v.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-lg text-xs transition-colors">
+                            View/Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Pagination */}
+              <div className="flex items-center justify-between px-5 py-3 border-t text-xs text-gray-600">
+                <div className="flex items-center gap-2">
+                  <span>Show</span>
+                  <select className="border rounded px-2 py-1" value={pageSize} onChange={e=>{setPageSize(Number(e.target.value));setPage(1);}}>
+                    {[10,25,50,100].map(s=><option key={s}>{s}</option>)}
+                  </select>
+                  <span>entries</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <button className="px-3 py-1 rounded border hover:bg-gray-100 disabled:opacity-40" disabled={page===1} onClick={()=>setPage(p=>p-1)}>Previous</button>
+                  {Array.from({length:Math.min(5,data.totalPages)},(_,i)=>{
+                    const p = Math.max(1,Math.min(page-2,data.totalPages-4))+i;
+                    return <button key={p} onClick={()=>setPage(p)} className={`px-3 py-1 rounded border ${page===p?'bg-blue-600 text-white border-blue-600':'hover:bg-gray-100'}`}>{p}</button>;
+                  })}
+                  <button className="px-3 py-1 rounded border hover:bg-gray-100 disabled:opacity-40" disabled={page===data.totalPages||data.totalPages===0} onClick={()=>setPage(p=>p+1)}>Next</button>
+                </div>
+                <span>Page {page} of {data.totalPages || 1}</span>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ── New Entry ── */
+const NewEntry = ({ onBack }) => {
+  const [masters, setMasters] = useState({ clients:[], yards:[], vehicleTypes:[] });
+  const [submitting, setSubmitting] = useState(false);
+  const [success, setSuccess] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    clientId:'', yardId:'', loanNumber:'', customerName:'', branchName:'', repoDate:'',
+    registrationNumber:'', chassisNumber:'', engineNumber:'',
+    make:'', model:'', variant:'', fuelType:'', transmissionType:'', manufacturingYear:'',
+    vehicleType:'', color:'', runningStatus:'Running', keyStatus:'Yes', rcStatus:'Pending',
+    batteryCondition:'', tyreCondition:'', odometerReading:'', insuranceAvailable:false,
+    parkingCharges:'450', towingCharges:'0', miscCharges:'0',
+  });
+
+  useEffect(() => {
+    Promise.all([
+      apiFetch('/api/masters/clients').then(r=>r.json()),
+      apiFetch('/api/masters/yards').then(r=>r.json()),
+      apiFetch('/api/masters/vehicle-types').then(r=>r.json()),
+    ]).then(([clients,yards,vehicleTypes])=>setMasters({clients,yards,vehicleTypes})).catch(()=>{});
+  }, []);
+
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSubmit = async (e) => {
+    e.preventDefault(); setError(''); setSubmitting(true);
+    try {
+      const payload = {
+        ...form,
+        clientId: Number(form.clientId), yardId: Number(form.yardId),
+        manufacturingYear: form.manufacturingYear ? Number(form.manufacturingYear) : null,
+        odometerReading: form.odometerReading ? Number(form.odometerReading) : null,
+        parkingCharges: Number(form.parkingCharges)||0,
+        towingCharges: Number(form.towingCharges)||0,
+        miscCharges: Number(form.miscCharges)||0,
+        repoDate: form.repoDate || null,
+      };
+      const res = await apiFetch('/api/inventory', { method:'POST', body: JSON.stringify(payload) });
+      if (!res.ok) { const err = await res.json(); setError(err.title || 'Failed to save'); return; }
+      setSuccess(true);
+    } catch { setError('Server error. Please try again.'); }
+    finally { setSubmitting(false); }
+  };
+
+  if (success) return (
+    <div className="p-6 max-w-lg mx-auto mt-10 text-center">
+      <div className="bg-white rounded-2xl shadow-md p-10">
+        <div className="text-5xl mb-4">✅</div>
+        <h2 className="text-xl font-bold text-gray-800 mb-2">Entry Saved!</h2>
+        <p className="text-gray-500 text-sm mb-6">Vehicle <strong>{form.registrationNumber}</strong> added to inventory.</p>
+        <div className="flex gap-3 justify-center">
+          <button onClick={()=>setSuccess(false)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-lg text-sm">Add Another</button>
+          <button onClick={onBack} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-lg text-sm">Back to Inventory</button>
+        </div>
+      </div>
+    </div>
+  );
+
+  const S = ({title,children}) => (
+    <div className="bg-white rounded-2xl shadow-md p-5 mb-4">
+      <h3 className="font-semibold text-gray-600 mb-4 pb-2 border-b text-xs uppercase tracking-wide">{title}</h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">{children}</div>
+    </div>
+  );
+  const F = ({label,children}) => (
+    <div>
+      <label className="block text-xs font-medium text-gray-600 mb-1">{label}</label>
+      {children}
+    </div>
+  );
+  const inp = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      <div className="flex items-center justify-between mb-5">
+        <h2 className="text-2xl font-bold">New Inventory Entry</h2>
+        <button onClick={onBack} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-4 py-2 rounded-lg text-sm">← Back</button>
+      </div>
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-3 mb-4 text-sm">{error}</div>}
+      <form onSubmit={handleSubmit}>
+        <S title="Loan & Ownership">
+          <F label="Client *">
+            <select required className={inp} value={form.clientId} onChange={e=>set('clientId',e.target.value)}>
+              <option value="">Select Client</option>
+              {masters.clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </F>
+          <F label="Loan Number *"><input required className={inp} value={form.loanNumber} onChange={e=>set('loanNumber',e.target.value)} placeholder="e.g. 03343955" /></F>
+          <F label="Customer Name"><input className={inp} value={form.customerName} onChange={e=>set('customerName',e.target.value)} placeholder="Full name" /></F>
+          <F label="Branch Name"><input className={inp} value={form.branchName} onChange={e=>set('branchName',e.target.value)} placeholder="Branch" /></F>
+          <F label="Repo Date"><input type="date" className={inp} value={form.repoDate} onChange={e=>set('repoDate',e.target.value)} /></F>
+        </S>
+
+        <S title="Vehicle Information">
+          <F label="Registration No *"><input required className={inp+" uppercase"} value={form.registrationNumber} onChange={e=>set('registrationNumber',e.target.value.toUpperCase())} placeholder="MH01AB1234" /></F>
+          <F label="Chassis No *"><input required className={inp+" uppercase"} value={form.chassisNumber} onChange={e=>set('chassisNumber',e.target.value.toUpperCase())} placeholder="CHASSIS001" /></F>
+          <F label="Engine No *"><input required className={inp} value={form.engineNumber} onChange={e=>set('engineNumber',e.target.value.toUpperCase())} placeholder="ENGINE001" /></F>
+          <F label="Vehicle Type *">
+            <select required className={inp} value={form.vehicleType} onChange={e=>set('vehicleType',e.target.value)}>
+              <option value="">Select Type</option>
+              {masters.vehicleTypes.map(t=><option key={t}>{t}</option>)}
+            </select>
+          </F>
+          <F label="Make"><input className={inp} value={form.make} onChange={e=>set('make',e.target.value)} placeholder="e.g. Maruti" /></F>
+          <F label="Model"><input className={inp} value={form.model} onChange={e=>set('model',e.target.value)} placeholder="e.g. Swift" /></F>
+          <F label="Fuel Type">
+            <select className={inp} value={form.fuelType} onChange={e=>set('fuelType',e.target.value)}>
+              <option value="">Select</option>
+              {['Petrol','Diesel','CNG','Electric','Hybrid'].map(f=><option key={f}>{f}</option>)}
+            </select>
+          </F>
+          <F label="Manufacturing Year"><input type="number" min="2000" max="2030" className={inp} value={form.manufacturingYear} onChange={e=>set('manufacturingYear',e.target.value)} placeholder="2022" /></F>
+          <F label="Color"><input className={inp} value={form.color} onChange={e=>set('color',e.target.value)} placeholder="e.g. White" /></F>
+        </S>
+
+        <S title="Yard & Status">
+          <F label="Yard *">
+            <select required className={inp} value={form.yardId} onChange={e=>set('yardId',e.target.value)}>
+              <option value="">Select Yard</option>
+              {masters.yards.map(y=><option key={y.id} value={y.id}>{y.name} — {y.city}</option>)}
+            </select>
+          </F>
+          <F label="Running Status">
+            <select className={inp} value={form.runningStatus} onChange={e=>set('runningStatus',e.target.value)}>
+              {['Running','Red/Idle','Auctioned','Released','Sold','Scrap'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </F>
+          <F label="Key Status">
+            <select className={inp} value={form.keyStatus} onChange={e=>set('keyStatus',e.target.value)}>
+              {['Yes','No','Duplicate Key','Missing'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </F>
+          <F label="RC Status">
+            <select className={inp} value={form.rcStatus} onChange={e=>set('rcStatus',e.target.value)}>
+              {['Submitted','Pending','Not Available','Duplicate'].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </F>
+          <F label="Odometer (km)"><input type="number" min="0" className={inp} value={form.odometerReading} onChange={e=>set('odometerReading',e.target.value)} placeholder="45000" /></F>
+          <F label="Insurance">
+            <div className="flex items-center gap-2 mt-2">
+              <input type="checkbox" id="ins" checked={form.insuranceAvailable} onChange={e=>set('insuranceAvailable',e.target.checked)} className="w-4 h-4" />
+              <label htmlFor="ins" className="text-sm text-gray-700">Available</label>
+            </div>
+          </F>
+        </S>
+
+        <S title="Charges (₹)">
+          <F label="Parking Charges"><input type="number" min="0" className={inp} value={form.parkingCharges} onChange={e=>set('parkingCharges',e.target.value)} /></F>
+          <F label="Towing Charges"><input type="number" min="0" className={inp} value={form.towingCharges} onChange={e=>set('towingCharges',e.target.value)} /></F>
+          <F label="Misc Charges"><input type="number" min="0" className={inp} value={form.miscCharges} onChange={e=>set('miscCharges',e.target.value)} /></F>
+        </S>
+
+        <div className="flex justify-end gap-3">
+          <button type="button" onClick={onBack} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-6 py-2 rounded-lg">Cancel</button>
+          <button type="submit" disabled={submitting} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold px-8 py-2 rounded-lg">
+            {submitting ? 'Saving…' : 'Save Entry'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+};
+
+/* ── App shell ── */
+const App = () => {
+  const [page, setPage]   = useState('login');
+  const [extra, setExtra] = useState(null);
+  const [user, setUser]   = useState(() => {
+    try { return JSON.parse(localStorage.getItem('yms_user')); } catch { return null; }
+  });
+
+  useEffect(() => {
+    if (user && getToken()) setPage('dashboard');
+  }, []);
+
+  const handleLogin = (u) => { setUser(u); setPage('dashboard'); };
+  const handleLogout = () => { localStorage.removeItem('yms_token'); localStorage.removeItem('yms_user'); setUser(null); setPage('login'); };
+  const onNav = (p, e=null) => { setPage(p); setExtra(e); };
+
+  if (!user || !getToken()) return <Login onLogin={handleLogin} />;
+
+  return (
+    <div className="min-h-screen flex flex-col">
+      <Header user={user} onLogout={handleLogout} onNav={onNav} />
+      {page === 'dashboard' && <Dashboard onNav={onNav} />}
+      {page === 'inventory' && <Inventory onNav={onNav} />}
+      {page === 'newentry'  && <NewEntry onBack={()=>onNav('inventory')} />}
+    </div>
+  );
+};
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

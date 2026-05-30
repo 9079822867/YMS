@@ -43,16 +43,17 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 builder.Services.AddAuthorization();
 
+// CORS: allow separate dev server (Vite) if running alongside
 builder.Services.AddCors(options =>
     options.AddPolicy("AllowFrontend", policy =>
-        policy.WithOrigins("http://localhost:5173", "http://localhost:3000")
+        policy.WithOrigins("http://localhost:5173", "http://localhost:3000", "http://localhost:5000")
               .AllowAnyHeader()
               .AllowAnyMethod()));
 
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new OpenApiInfo { Title = "YMS API", Version = "v1" });
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "YMS Pro API", Version = "v1", Description = "Yard Inventory Management System" });
     c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
@@ -73,22 +74,32 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Auto-migrate on startup
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<YmsDbContext>();
     db.Database.Migrate();
 }
 
-if (app.Environment.IsDevelopment())
+// Swagger available in all environments
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "YMS Pro API v1");
+    c.RoutePrefix = "swagger";
+});
+
+// Serve React SPA from wwwroot
+app.UseDefaultFiles();          // serves index.html for /
+app.UseStaticFiles();           // serves wwwroot files
 
 app.UseCors("AllowFrontend");
 app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
+
+// SPA fallback — non-API routes return index.html (React Router)
+app.MapFallbackToFile("index.html");
 
 app.Run();
 
