@@ -22,6 +22,10 @@ builder.Services.AddScoped<IInventoryRepository, InventoryRepository>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IInventoryService, InventoryService>();
 builder.Services.AddScoped<IUserManagementService, UserManagementService>();
+builder.Services.AddScoped<IMasterService, MasterService>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.MasterItem>, Repository<YMS.Domain.Entities.MasterItem>>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Client>, Repository<YMS.Domain.Entities.Client>>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Yard>, Repository<YMS.Domain.Entities.Yard>>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 
 var jwtSecret = builder.Configuration["Jwt:Secret"]

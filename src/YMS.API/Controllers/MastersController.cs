@@ -1,7 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore;
-using YMS.Infrastructure.Data;
+using YMS.Application.DTOs;
+using YMS.Application.Interfaces;
+using YMS.Domain.Entities;
 
 namespace YMS.API.Controllers;
 
@@ -10,59 +11,141 @@ namespace YMS.API.Controllers;
 [Authorize]
 public class MastersController : ControllerBase
 {
-    private readonly YmsDbContext _context;
+    private readonly IMasterService _masterService;
 
-    public MastersController(YmsDbContext context)
+    public MastersController(IMasterService masterService)
     {
-        _context = context;
+        _masterService = masterService;
     }
+
+    // ══════════════════════════════════════════════════════════
+    //  GENERIC MASTER ITEMS  (State / VehicleType / Status …)
+    // ══════════════════════════════════════════════════════════
+
+    [HttpGet("categories")]
+    public IActionResult GetCategories() => Ok(MasterCategory.All);
+
+    [HttpGet("items/{category}")]
+    public async Task<IActionResult> GetItems(string category)
+    {
+        var items = await _masterService.GetItemsAsync(category);
+        return Ok(items);
+    }
+
+    [HttpGet("items/{category}/{id:int}")]
+    public async Task<IActionResult> GetItem(string category, int id)
+    {
+        var item = await _masterService.GetItemByIdAsync(id);
+        return item is null ? NotFound() : Ok(item);
+    }
+
+    [HttpPost("items"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateItem([FromBody] SaveMasterItemRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var (ok, err) = await _masterService.SaveItemAsync(null, request);
+        return ok ? Ok(new { message = "Item created" }) : BadRequest(new { message = err });
+    }
+
+    [HttpPut("items/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateItem(int id, [FromBody] SaveMasterItemRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var (ok, err) = await _masterService.SaveItemAsync(id, request);
+        if (!ok) return err == "Item not found" ? NotFound() : BadRequest(new { message = err });
+        return NoContent();
+    }
+
+    [HttpDelete("items/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteItem(int id)
+    {
+        var ok = await _masterService.DeleteItemAsync(id);
+        return ok ? NoContent() : NotFound();
+    }
+
+    // ══════════════════════════════════════════════════════════
+    //  CLIENTS
+    // ══════════════════════════════════════════════════════════
 
     [HttpGet("clients")]
-    public async Task<IActionResult> GetClients()
+    public async Task<IActionResult> GetClients() => Ok(await _masterService.GetClientsAsync());
+
+    [HttpGet("clients/{id:int}")]
+    public async Task<IActionResult> GetClient(int id)
     {
-        var clients = await _context.Clients
-            .Where(c => c.IsActive && !c.IsDeleted)
-            .Select(c => new { c.Id, c.Name })
-            .ToListAsync();
-        return Ok(clients);
+        var c = await _masterService.GetClientByIdAsync(id);
+        return c is null ? NotFound() : Ok(c);
     }
+
+    [HttpPost("clients"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateClient([FromBody] SaveClientRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var created = await _masterService.CreateClientAsync(request);
+        return CreatedAtAction(nameof(GetClient), new { id = created.Id }, created);
+    }
+
+    [HttpPut("clients/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateClient(int id, [FromBody] SaveClientRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var (ok, err) = await _masterService.UpdateClientAsync(id, request);
+        if (!ok) return err == "Client not found" ? NotFound() : BadRequest(new { message = err });
+        return NoContent();
+    }
+
+    [HttpDelete("clients/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteClient(int id)
+        => await _masterService.DeleteClientAsync(id) ? NoContent() : NotFound();
+
+    // ══════════════════════════════════════════════════════════
+    //  YARDS
+    // ══════════════════════════════════════════════════════════
 
     [HttpGet("yards")]
-    public async Task<IActionResult> GetYards()
+    public async Task<IActionResult> GetYards() => Ok(await _masterService.GetYardsAsync());
+
+    [HttpGet("yards/{id:int}")]
+    public async Task<IActionResult> GetYard(int id)
     {
-        var yards = await _context.Yards
-            .Where(y => y.IsActive && !y.IsDeleted)
-            .Select(y => new { y.Id, y.Name, y.City, y.State })
-            .ToListAsync();
-        return Ok(yards);
+        var y = await _masterService.GetYardByIdAsync(id);
+        return y is null ? NotFound() : Ok(y);
     }
+
+    [HttpPost("yards"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateYard([FromBody] SaveYardRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var created = await _masterService.CreateYardAsync(request);
+        return CreatedAtAction(nameof(GetYard), new { id = created.Id }, created);
+    }
+
+    [HttpPut("yards/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateYard(int id, [FromBody] SaveYardRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var (ok, err) = await _masterService.UpdateYardAsync(id, request);
+        if (!ok) return err == "Yard not found" ? NotFound() : BadRequest(new { message = err });
+        return NoContent();
+    }
+
+    [HttpDelete("yards/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteYard(int id)
+        => await _masterService.DeleteYardAsync(id) ? NoContent() : NotFound();
+
+    // ══════════════════════════════════════════════════════════
+    //  LEGACY convenience GET routes (keep existing API contracts)
+    // ══════════════════════════════════════════════════════════
 
     [HttpGet("states")]
-    public IActionResult GetStates()
-    {
-        var states = new[]
-        {
-            "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
-            "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka",
-            "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram",
-            "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
-            "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
-            "Delhi", "Jammu and Kashmir", "Ladakh"
-        };
-        return Ok(states);
-    }
+    public async Task<IActionResult> GetStates()
+        => Ok((await _masterService.GetItemsAsync("State")).Select(i => i.Name));
 
     [HttpGet("vehicle-types")]
-    public IActionResult GetVehicleTypes()
-    {
-        var types = new[] { "Car", "Bike", "Truck", "Bus", "Auto", "Van", "Tractor", "Other" };
-        return Ok(types);
-    }
+    public async Task<IActionResult> GetVehicleTypes()
+        => Ok((await _masterService.GetItemsAsync("VehicleType")).Select(i => i.Name));
 
     [HttpGet("running-statuses")]
-    public IActionResult GetRunningStatuses()
-    {
-        var statuses = new[] { "Running", "Red/Idle", "Auctioned", "Released", "Sold", "Scrap" };
-        return Ok(statuses);
-    }
+    public async Task<IActionResult> GetRunningStatuses()
+        => Ok((await _masterService.GetItemsAsync("RunningStatus")).Select(i => i.Name));
 }

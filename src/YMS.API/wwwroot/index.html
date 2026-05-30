@@ -45,10 +45,10 @@ const apiFetch = async (url, opts = {}) => {
 const ROLES = ['Admin','Operations','Yard','Client'];
 const ROLE_COLORS = { Admin:'bg-red-600', Operations:'bg-blue-600', Yard:'bg-green-600', Client:'bg-purple-600' };
 const ROLE_PERMS = {
-  Admin:      { dashboard:true,  inventory:true,  newEntry:true,  users:true,  deleteVehicle:true  },
-  Operations: { dashboard:true,  inventory:true,  newEntry:true,  users:false, deleteVehicle:false },
-  Yard:       { dashboard:false, inventory:true,  newEntry:true,  users:false, deleteVehicle:false },
-  Client:     { dashboard:false, inventory:true,  newEntry:false, users:false, deleteVehicle:false },
+  Admin:      { dashboard:true,  inventory:true,  newEntry:true,  users:true,  masters:true,  deleteVehicle:true  },
+  Operations: { dashboard:true,  inventory:true,  newEntry:true,  users:false, masters:false, deleteVehicle:false },
+  Yard:       { dashboard:false, inventory:true,  newEntry:true,  users:false, masters:false, deleteVehicle:false },
+  Client:     { dashboard:false, inventory:true,  newEntry:false, users:false, masters:false, deleteVehicle:false },
 };
 const can = (role, perm) => ROLE_PERMS[role]?.[perm] ?? false;
 
@@ -85,6 +85,7 @@ const Header = ({ user, onLogout, onNav, currentPage }) => {
         <nav className="flex items-center gap-1 ml-2">
           {can(role,'dashboard') && <NavBtn page="dashboard" label="Dashboard" />}
           {can(role,'inventory') && <NavBtn page="inventory" label="Inventory" />}
+          {can(role,'masters')   && <NavBtn page="masters"   label="Masters" />}
           {can(role,'users')     && <NavBtn page="users"     label="Users" />}
         </nav>
       </div>
@@ -587,6 +588,228 @@ const NewEntry = ({ onBack }) => {
   );
 };
 
+/* ── Masters ── */
+const MASTER_TABS = [
+  { key:'clients',    label:'Clients'       },
+  { key:'yards',      label:'Yards'         },
+  { key:'State',      label:'States'        },
+  { key:'VehicleType',label:'Vehicle Types' },
+  { key:'RunningStatus', label:'Running Statuses' },
+  { key:'KeyStatus',  label:'Key Statuses'  },
+  { key:'RcStatus',   label:'RC Statuses'   },
+  { key:'FuelType',   label:'Fuel Types'    },
+  { key:'TransmissionType', label:'Transmission' },
+];
+
+const Masters = () => {
+  const [tab, setTab]     = useState('clients');
+  const [rows, setRows]   = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [modal, setModal] = useState(null);
+  const [form, setForm]   = useState({});
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]     = useState('');
+  const [delId, setDelId] = useState(null);
+  const [toast, setToast] = useState('');
+
+  const isItemTab    = !['clients','yards'].includes(tab);
+  const isClientTab  = tab === 'clients';
+  const isYardTab    = tab === 'yards';
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3000); };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const url = isItemTab ? `/api/masters/items/${tab}` : `/api/masters/${tab}`;
+      const res = await apiFetch(url);
+      if (res.ok) setRows(await res.json());
+    } catch {}
+    finally { setLoading(false); }
+  }, [tab]);
+
+  useEffect(() => { setRows([]); load(); }, [load]);
+
+  const blankForm = () => {
+    if (isClientTab) return { name:'', contactPerson:'', phone:'', email:'', isActive:true };
+    if (isYardTab)   return { name:'', address:'', managerName:'', contactNumber:'', city:'', state:'', isActive:true };
+    return { category: tab, name:'', sortOrder:0, isActive:true };
+  };
+
+  const openCreate = () => { setForm(blankForm()); setErr(''); setModal({mode:'create'}); };
+  const openEdit   = r  => {
+    if (isClientTab) setForm({ name:r.name, contactPerson:r.contactPerson||'', phone:r.phone||'', email:r.email||'', isActive:r.isActive });
+    else if (isYardTab) setForm({ name:r.name, address:r.address||'', managerName:r.managerName||'', contactNumber:r.contactNumber||'', city:r.city, state:r.state, isActive:r.isActive });
+    else setForm({ category:r.category, name:r.name, sortOrder:r.sortOrder||0, isActive:r.isActive });
+    setErr(''); setModal({ mode:'edit', row:r });
+  };
+
+  const handleSave = async e => {
+    e.preventDefault(); setErr(''); setSaving(true);
+    try {
+      let url, method;
+      if (modal.mode === 'create') {
+        url = isItemTab ? '/api/masters/items' : `/api/masters/${tab}`;
+        method = 'POST';
+      } else {
+        url = isItemTab ? `/api/masters/items/${modal.row.id}` : `/api/masters/${tab}/${modal.row.id}`;
+        method = 'PUT';
+      }
+      const res = await apiFetch(url, { method, body: JSON.stringify(form) });
+      if (!res.ok) { const e = await res.json(); setErr(e.message||'Error'); return; }
+      setModal(null);
+      showToast(modal.mode === 'create' ? 'Created!' : 'Updated!');
+      load();
+    } catch { setErr('Server error'); }
+    finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!delId) return;
+    const url = isItemTab ? `/api/masters/items/${delId.id}` : `/api/masters/${delId.type}/${delId.id}`;
+    const res = await apiFetch(url, { method:'DELETE' });
+    setDelId(null);
+    if (res.ok) { showToast('Deleted!'); load(); }
+  };
+
+  const setF = (k,v) => setForm(f=>({...f,[k]:v}));
+  const inp = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  const renderForm = () => {
+    if (isClientTab) return (<>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Name *</label><input required className={inp} value={form.name||''} onChange={e=>setF('name',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Contact Person</label><input className={inp} value={form.contactPerson||''} onChange={e=>setF('contactPerson',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Phone</label><input className={inp} value={form.phone||''} onChange={e=>setF('phone',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Email</label><input type="email" className={inp} value={form.email||''} onChange={e=>setF('email',e.target.value)} /></div>
+      {modal?.mode==='edit' && <div className="flex items-center gap-2"><input type="checkbox" checked={!!form.isActive} onChange={e=>setF('isActive',e.target.checked)} className="w-4 h-4 accent-blue-600" /><label className="text-sm text-gray-700">Active</label></div>}
+    </>);
+    if (isYardTab) return (<>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Yard Name *</label><input required className={inp} value={form.name||''} onChange={e=>setF('name',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">City *</label><input required className={inp} value={form.city||''} onChange={e=>setF('city',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">State *</label><input required className={inp} value={form.state||''} onChange={e=>setF('state',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Address</label><input className={inp} value={form.address||''} onChange={e=>setF('address',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Manager Name</label><input className={inp} value={form.managerName||''} onChange={e=>setF('managerName',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Contact Number</label><input className={inp} value={form.contactNumber||''} onChange={e=>setF('contactNumber',e.target.value)} /></div>
+      {modal?.mode==='edit' && <div className="flex items-center gap-2"><input type="checkbox" checked={!!form.isActive} onChange={e=>setF('isActive',e.target.checked)} className="w-4 h-4 accent-blue-600" /><label className="text-sm text-gray-700">Active</label></div>}
+    </>);
+    return (<>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Name *</label><input required className={inp} value={form.name||''} onChange={e=>setF('name',e.target.value)} placeholder="Enter value" /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">Sort Order</label><input type="number" min="0" className={inp} value={form.sortOrder||0} onChange={e=>setF('sortOrder',Number(e.target.value))} /></div>
+      {modal?.mode==='edit' && <div className="flex items-center gap-2"><input type="checkbox" checked={!!form.isActive} onChange={e=>setF('isActive',e.target.checked)} className="w-4 h-4 accent-blue-600" /><label className="text-sm text-gray-700">Active</label></div>}
+    </>);
+  };
+
+  const renderRow = r => {
+    if (isClientTab) return [r.name, r.contactPerson||'—', r.phone||'—', r.email||'—'];
+    if (isYardTab)   return [r.name, r.city, r.state, r.managerName||'—', r.contactNumber||'—'];
+    return [r.name, `Sort: ${r.sortOrder}`];
+  };
+  const headers = isClientTab ? ['Name','Contact Person','Phone','Email'] :
+                  isYardTab   ? ['Name','City','State','Manager','Phone'] : ['Name','Order'];
+
+  return (
+    <div className="p-6">
+      {toast && <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium">✓ {toast}</div>}
+
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Master Management</h2>
+          <p className="text-sm text-gray-500 mt-1">Manage clients, yards and lookup values</p>
+        </div>
+        <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">
+          + Add {MASTER_TABS.find(t=>t.key===tab)?.label.replace(/s$/,'')}
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex flex-wrap gap-1 mb-5 bg-white rounded-2xl p-2 shadow-sm">
+        {MASTER_TABS.map(t => (
+          <button key={t.key} onClick={()=>setTab(t.key)}
+            className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${tab===t.key ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+        {loading ? <Spinner /> : (
+          <table className="w-full text-sm">
+            <thead className="bg-blue-600 text-white text-xs">
+              <tr>
+                <th className="px-4 py-3 text-left">#</th>
+                {headers.map(h=><th key={h} className="px-4 py-3 text-left whitespace-nowrap">{h}</th>)}
+                <th className="px-4 py-3 text-left">Status</th>
+                <th className="px-4 py-3 text-left">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length===0 ? (
+                <tr><td colSpan={headers.length+3} className="text-center py-12 text-gray-400">No records found</td></tr>
+              ) : rows.map((r,i)=>(
+                <tr key={r.id} className="border-b hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-gray-400 text-xs">{i+1}</td>
+                  {renderRow(r).map((v,j)=><td key={j} className="px-4 py-3 text-gray-700">{v}</td>)}
+                  <td className="px-4 py-3">
+                    <span className={`badge ${r.isActive!==false ? 'bg-green-600' : 'bg-gray-400'}`}>
+                      {r.isActive!==false ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={()=>openEdit(r)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-xs font-medium">Edit</button>
+                      <button onClick={()=>setDelId({id:r.id,type:tab})} className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg text-xs font-medium">Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Modal */}
+      {modal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.5)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-6 py-4 border-b">
+              <h3 className="text-lg font-bold text-gray-800">
+                {modal.mode==='create' ? 'Add' : 'Edit'} {MASTER_TABS.find(t=>t.key===tab)?.label.replace(/s$/,'')}
+              </h3>
+              <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">×</button>
+            </div>
+            <form onSubmit={handleSave} className="p-6 space-y-4">
+              {err && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm">{err}</div>}
+              {renderForm()}
+              <div className="flex justify-end gap-3 pt-2">
+                <button type="button" onClick={()=>setModal(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button>
+                <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold px-5 py-2 rounded-xl text-sm">
+                  {saving ? 'Saving…' : modal.mode==='create' ? 'Create' : 'Save'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {delId && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.5)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+            <div className="text-4xl mb-3">🗑️</div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Delete this record?</h3>
+            <p className="text-sm text-gray-500 mb-6">This cannot be undone.</p>
+            <div className="flex justify-center gap-3">
+              <button onClick={()=>setDelId(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button>
+              <button onClick={handleDelete} className="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── User Management ── */
 const EMPTY_FORM = { fullName:'', email:'', password:'', role:'Operations', isActive:true };
 
@@ -848,6 +1071,7 @@ const App = () => {
       {page === 'dashboard' && can(role,'dashboard') && <Dashboard onNav={onNav} />}
       {page === 'inventory' && can(role,'inventory') && <Inventory onNav={onNav} user={user} />}
       {page === 'newentry'  && can(role,'newEntry')  && <NewEntry  onBack={()=>onNav('inventory')} />}
+      {page === 'masters'   && can(role,'masters')   && <Masters />}
       {page === 'users'     && can(role,'users')     && <UserManagement />}
       {/* Fallback for unauthorised page access */}
       {((page==='dashboard'&&!can(role,'dashboard'))||(page==='users'&&!can(role,'users'))||(page==='newentry'&&!can(role,'newEntry'))) && (
