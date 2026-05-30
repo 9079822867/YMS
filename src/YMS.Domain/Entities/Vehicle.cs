@@ -4,6 +4,7 @@ public class Vehicle : BaseEntity
 {
     public int ClientId { get; set; }
     public int YardId { get; set; }
+    public int? ProjectId { get; set; }
 
     // Loan Details
     public string LoanNumber { get; set; } = string.Empty;
@@ -45,5 +46,6 @@ public class Vehicle : BaseEntity
 
     public Client Client { get; set; } = null!;
     public Yard Yard { get; set; } = null!;
+    public Project? Project { get; set; }
     public ICollection<Report> Reports { get; set; } = new List<Report>();
 }

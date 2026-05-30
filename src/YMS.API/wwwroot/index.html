@@ -45,10 +45,10 @@ const apiFetch = async (url, opts = {}) => {
 const ROLES = ['Admin','Operations','Yard','Client'];
 const ROLE_COLORS = { Admin:'bg-red-600', Operations:'bg-blue-600', Yard:'bg-green-600', Client:'bg-purple-600' };
 const ROLE_PERMS = {
-  Admin:      { dashboard:true,  inventory:true,  newEntry:true,  users:true,  masters:true,  deleteVehicle:true  },
-  Operations: { dashboard:true,  inventory:true,  newEntry:true,  users:false, masters:false, deleteVehicle:false },
-  Yard:       { dashboard:false, inventory:true,  newEntry:true,  users:false, masters:false, deleteVehicle:false },
-  Client:     { dashboard:false, inventory:true,  newEntry:false, users:false, masters:false, deleteVehicle:false },
+  Admin:      { dashboard:true,  inventory:true,  newEntry:true,  projects:true,  users:true,  masters:true,  deleteVehicle:true  },
+  Operations: { dashboard:true,  inventory:true,  newEntry:true,  projects:true,  users:false, masters:false, deleteVehicle:false },
+  Yard:       { dashboard:false, inventory:true,  newEntry:true,  projects:true,  users:false, masters:false, deleteVehicle:false },
+  Client:     { dashboard:false, inventory:true,  newEntry:false, projects:true,  users:false, masters:false, deleteVehicle:false },
 };
 const can = (role, perm) => ROLE_PERMS[role]?.[perm] ?? false;
 
@@ -83,10 +83,11 @@ const Header = ({ user, onLogout, onNav, currentPage }) => {
           <h1 className="text-lg font-bold">YMS Pro</h1>
         </div>
         <nav className="flex items-center gap-1 ml-2">
-          {can(role,'dashboard') && <NavBtn page="dashboard" label="Dashboard" />}
-          {can(role,'inventory') && <NavBtn page="inventory" label="Inventory" />}
-          {can(role,'masters')   && <NavBtn page="masters"   label="Masters" />}
-          {can(role,'users')     && <NavBtn page="users"     label="Users" />}
+          {can(role,'dashboard') && <NavBtn page="dashboard" label="Dashboard"  />}
+          {can(role,'inventory') && <NavBtn page="inventory" label="Inventory"  />}
+          {can(role,'projects')  && <NavBtn page="projects"  label="Projects"   />}
+          {can(role,'masters')   && <NavBtn page="masters"   label="Masters"    />}
+          {can(role,'users')     && <NavBtn page="users"     label="Users"      />}
         </nav>
       </div>
       <div className="flex items-center gap-3">
@@ -588,6 +589,278 @@ const NewEntry = ({ onBack }) => {
   );
 };
 
+/* ── Projects ── */
+const STATUS_COLORS  = { Active:'bg-green-600','On Hold':'bg-yellow-500',Completed:'bg-blue-600',Cancelled:'bg-red-600' };
+const PRIORITY_COLORS= { High:'bg-red-600', Medium:'bg-orange-500', Low:'bg-gray-400' };
+const PROJ_STATUSES  = ['Active','On Hold','Completed','Cancelled'];
+const PROJ_PRIORITIES= ['High','Medium','Low'];
+
+const BLANK_PROJ = { projectName:'', description:'', clientId:'', assignedUserId:'', status:'Active', priority:'Medium', startDate: new Date().toISOString().slice(0,10), endDate:'', notes:'' };
+
+const Projects = ({ user }) => {
+  const role = user?.role || '';
+  const canWrite = ['Admin','Operations'].includes(role);
+
+  const [rows, setRows]     = useState([]);
+  const [total, setTotal]   = useState(0);
+  const [totalPages, setTP] = useState(1);
+  const [page, setPage]     = useState(1);
+  const [pageSize]          = useState(25);
+  const [loading, setLoading] = useState(false);
+  const [filters, setFilters] = useState({ projectName:'', clientName:'', status:'', priority:'' });
+  const [applied, setApplied] = useState({});
+  const [modal, setModal]   = useState(null);
+  const [form, setForm]     = useState(BLANK_PROJ);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr]       = useState('');
+  const [delId, setDelId]   = useState(null);
+  const [toast, setToast]   = useState('');
+  const [clients, setClients] = useState([]);
+  const [users, setUsers]   = useState([]);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3000); };
+
+  useEffect(() => {
+    apiFetch('/api/masters/clients').then(r=>r.json()).then(setClients).catch(()=>{});
+    apiFetch('/api/users').then(r=>r.ok?r.json():[]).then(setUsers).catch(()=>{});
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const p = new URLSearchParams({ page, pageSize });
+      Object.entries(applied).forEach(([k,v]) => { if(v) p.append(k,v); });
+      const res = await apiFetch(`/api/project?${p}`);
+      if (res.ok) {
+        const d = await res.json();
+        setRows(d.items || []);
+        setTotal(d.totalCount || 0);
+        setTP(d.totalPages || 1);
+      }
+    } catch {} finally { setLoading(false); }
+  }, [applied, page, pageSize]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openCreate = () => { setForm({...BLANK_PROJ}); setErr(''); setModal({mode:'create'}); };
+  const openEdit   = r  => {
+    setForm({
+      projectName: r.projectName, description: r.description||'', clientId: r.clientId||'',
+      assignedUserId: r.assignedUserId||'', status: r.status, priority: r.priority,
+      startDate: r.startDate?.slice(0,10)||'', endDate: r.endDate?.slice(0,10)||'', notes: r.notes||''
+    });
+    setErr(''); setModal({ mode:'edit', row:r });
+  };
+
+  const handleSave = async e => {
+    e.preventDefault(); setErr(''); setSaving(true);
+    try {
+      const body = {
+        ...form,
+        clientId: Number(form.clientId),
+        assignedUserId: form.assignedUserId ? Number(form.assignedUserId) : null,
+        endDate: form.endDate || null,
+      };
+      const url    = modal.mode==='create' ? '/api/project' : `/api/project/${modal.row.id}`;
+      const method = modal.mode==='create' ? 'POST' : 'PUT';
+      const res = await apiFetch(url, { method, body: JSON.stringify(body) });
+      if (!res.ok) { const e=await res.json(); setErr(e.message||'Error'); return; }
+      setModal(null); showToast(modal.mode==='create'?'Project created!':'Project updated!'); load();
+    } catch { setErr('Server error'); } finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!delId) return;
+    await apiFetch(`/api/project/${delId}`,{method:'DELETE'});
+    setDelId(null); showToast('Project deleted'); load();
+  };
+
+  const setF = (k,v) => setForm(f=>({...f,[k]:v}));
+  const setFil = (k,v) => setFilters(f=>({...f,[k]:v}));
+  const inp = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  return (
+    <div className="p-6">
+      {toast && <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm font-medium">✓ {toast}</div>}
+
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-800">Projects</h2>
+          <p className="text-sm text-gray-500 mt-1">Manage repossession and inspection projects</p>
+        </div>
+        {canWrite && (
+          <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">
+            + New Project
+          </button>
+        )}
+      </div>
+
+      {/* Filters */}
+      <div className="bg-white rounded-2xl shadow-sm p-4 mb-5 grid grid-cols-2 md:grid-cols-5 gap-3">
+        <input className={inp+" text-xs"} placeholder="Project name" value={filters.projectName} onChange={e=>setFil('projectName',e.target.value)} />
+        <input className={inp+" text-xs"} placeholder="Client name"  value={filters.clientName}  onChange={e=>setFil('clientName',e.target.value)} />
+        <select className={inp+" text-xs"} value={filters.status}   onChange={e=>setFil('status',e.target.value)}>
+          <option value="">All Statuses</option>
+          {PROJ_STATUSES.map(s=><option key={s}>{s}</option>)}
+        </select>
+        <select className={inp+" text-xs"} value={filters.priority} onChange={e=>setFil('priority',e.target.value)}>
+          <option value="">All Priorities</option>
+          {PROJ_PRIORITIES.map(p=><option key={p}>{p}</option>)}
+        </select>
+        <div className="flex gap-2">
+          <button onClick={()=>{setPage(1);setApplied({...filters});}} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold py-2 rounded-xl">Search</button>
+          <button onClick={()=>{setFilters({projectName:'',clientName:'',status:'',priority:''});setApplied({});setPage(1);}} className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs font-semibold py-2 rounded-xl">Clear</button>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-3 border-b">
+          <span className="font-semibold text-gray-700 text-sm">
+            {!loading && <span className="text-gray-500">({total.toLocaleString()} projects)</span>}
+          </span>
+        </div>
+        {loading ? <Spinner /> : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-blue-600 text-white text-xs">
+                  <tr>
+                    {['#','Project Name','Client','Status','Priority','Start Date','End Date','Assigned To','Vehicles','Actions'].map(h=>(
+                      <th key={h} className="px-4 py-3 text-left whitespace-nowrap font-semibold">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.length===0 ? (
+                    <tr><td colSpan={10} className="text-center py-16 text-gray-400">No projects found. {canWrite && 'Click "+ New Project" to create one.'}</td></tr>
+                  ) : rows.map((r,i)=>(
+                    <tr key={r.id} className="border-b hover:bg-blue-50 transition-colors">
+                      <td className="px-4 py-3 text-gray-400 text-xs">{(page-1)*pageSize+i+1}</td>
+                      <td className="px-4 py-3 font-medium text-gray-800">{r.projectName}</td>
+                      <td className="px-4 py-3 text-gray-600">{r.clientName}</td>
+                      <td className="px-4 py-3"><span className={`badge ${STATUS_COLORS[r.status]||'bg-gray-400'}`}>{r.status}</span></td>
+                      <td className="px-4 py-3"><span className={`badge ${PRIORITY_COLORS[r.priority]||'bg-gray-400'}`}>{r.priority}</span></td>
+                      <td className="px-4 py-3 text-xs">{new Date(r.startDate).toLocaleDateString('en-IN')}</td>
+                      <td className="px-4 py-3 text-xs">{r.endDate ? new Date(r.endDate).toLocaleDateString('en-IN') : '—'}</td>
+                      <td className="px-4 py-3 text-xs">{r.assignedTo||'—'}</td>
+                      <td className="px-4 py-3">
+                        <span className="bg-blue-100 text-blue-700 px-2.5 py-0.5 rounded-full text-xs font-semibold">{r.vehicleCount}</span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2">
+                          {canWrite && <button onClick={()=>openEdit(r)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-xs font-medium">Edit</button>}
+                          {role==='Admin' && <button onClick={()=>setDelId(r.id)} className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg text-xs font-medium">Delete</button>}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {/* Pagination */}
+            <div className="flex items-center justify-between px-5 py-3 border-t text-xs text-gray-600">
+              <span>Showing {Math.min((page-1)*pageSize+1,total)}–{Math.min(page*pageSize,total)} of {total}</span>
+              <div className="flex gap-1">
+                <button disabled={page===1} onClick={()=>setPage(p=>p-1)} className="px-3 py-1 rounded border hover:bg-gray-100 disabled:opacity-40">Previous</button>
+                {Array.from({length:Math.min(5,totalPages)},(_,i)=>{
+                  const p=Math.max(1,Math.min(page-2,totalPages-4))+i;
+                  return <button key={p} onClick={()=>setPage(p)} className={`px-3 py-1 rounded border ${page===p?'bg-blue-600 text-white border-blue-600':'hover:bg-gray-100'}`}>{p}</button>;
+                })}
+                <button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} className="px-3 py-1 rounded border hover:bg-gray-100 disabled:opacity-40">Next</button>
+              </div>
+              <span>Page {page} of {totalPages}</span>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Add/Edit Modal */}
+      {modal && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.5)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white">
+              <h3 className="text-lg font-bold text-gray-800">{modal.mode==='create'?'New Project':'Edit Project'}</h3>
+              <button onClick={()=>setModal(null)} className="text-gray-400 hover:text-gray-600 text-xl font-bold">×</button>
+            </div>
+            <form onSubmit={handleSave} className="p-6 space-y-4">
+              {err && <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm">{err}</div>}
+
+              <div><label className="block text-xs font-semibold text-gray-600 mb-1">Project Name *</label>
+                <input required className={inp} value={form.projectName} onChange={e=>setF('projectName',e.target.value)} placeholder="e.g. Repo Batch Q3 2025" /></div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-xs font-semibold text-gray-600 mb-1">Client *</label>
+                  <select required className={inp} value={form.clientId} onChange={e=>setF('clientId',e.target.value)}>
+                    <option value="">Select Client</option>
+                    {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select></div>
+                <div><label className="block text-xs font-semibold text-gray-600 mb-1">Assigned To</label>
+                  <select className={inp} value={form.assignedUserId} onChange={e=>setF('assignedUserId',e.target.value)}>
+                    <option value="">Unassigned</option>
+                    {users.map(u=><option key={u.id} value={u.id}>{u.fullName} ({u.role})</option>)}
+                  </select></div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-xs font-semibold text-gray-600 mb-1">Status</label>
+                  <select className={inp} value={form.status} onChange={e=>setF('status',e.target.value)}>
+                    {PROJ_STATUSES.map(s=><option key={s}>{s}</option>)}
+                  </select></div>
+                <div><label className="block text-xs font-semibold text-gray-600 mb-1">Priority</label>
+                  <div className="flex gap-2 mt-1">
+                    {PROJ_PRIORITIES.map(p=>(
+                      <label key={p} className={`flex-1 flex items-center justify-center gap-1 border-2 rounded-xl py-1.5 cursor-pointer text-xs font-semibold transition-colors ${form.priority===p?'border-blue-500 bg-blue-50 text-blue-700':'border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                        <input type="radio" name="priority" value={p} checked={form.priority===p} onChange={()=>setF('priority',p)} className="hidden"/>
+                        <span className={`w-2.5 h-2.5 rounded-full ${PRIORITY_COLORS[p]}`}/>
+                        {p}
+                      </label>
+                    ))}
+                  </div></div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div><label className="block text-xs font-semibold text-gray-600 mb-1">Start Date *</label>
+                  <input type="date" required className={inp} value={form.startDate} onChange={e=>setF('startDate',e.target.value)} /></div>
+                <div><label className="block text-xs font-semibold text-gray-600 mb-1">End Date</label>
+                  <input type="date" className={inp} value={form.endDate} onChange={e=>setF('endDate',e.target.value)} /></div>
+              </div>
+
+              <div><label className="block text-xs font-semibold text-gray-600 mb-1">Description</label>
+                <textarea rows={2} className={inp} value={form.description} onChange={e=>setF('description',e.target.value)} placeholder="Project description..." /></div>
+
+              <div><label className="block text-xs font-semibold text-gray-600 mb-1">Notes</label>
+                <textarea rows={2} className={inp} value={form.notes} onChange={e=>setF('notes',e.target.value)} placeholder="Internal notes..." /></div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t">
+                <button type="button" onClick={()=>setModal(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button>
+                <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold px-6 py-2 rounded-xl text-sm">
+                  {saving?'Saving…':modal.mode==='create'?'Create Project':'Save Changes'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete confirm */}
+      {delId && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.5)'}}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 text-center">
+            <div className="text-4xl mb-3">🗑️</div>
+            <h3 className="text-lg font-bold text-gray-800 mb-2">Delete Project?</h3>
+            <p className="text-sm text-gray-500 mb-6">Vehicles linked to this project will be unlinked but not deleted.</p>
+            <div className="flex justify-center gap-3">
+              <button onClick={()=>setDelId(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button>
+              <button onClick={handleDelete} className="bg-red-600 hover:bg-red-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">Delete</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 /* ── Masters ── */
 const MASTER_TABS = [
   { key:'clients',    label:'Clients'       },
@@ -1071,6 +1344,7 @@ const App = () => {
       {page === 'dashboard' && can(role,'dashboard') && <Dashboard onNav={onNav} />}
       {page === 'inventory' && can(role,'inventory') && <Inventory onNav={onNav} user={user} />}
       {page === 'newentry'  && can(role,'newEntry')  && <NewEntry  onBack={()=>onNav('inventory')} />}
+      {page === 'projects'  && can(role,'projects')  && <Projects user={user} />}
       {page === 'masters'   && can(role,'masters')   && <Masters />}
       {page === 'users'     && can(role,'users')     && <UserManagement />}
       {/* Fallback for unauthorised page access */}

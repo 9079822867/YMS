@@ -14,6 +14,7 @@ public class YmsDbContext : DbContext
     public DbSet<Report> Reports => Set<Report>();
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<MasterItem> MasterItems => Set<MasterItem>();
+    public DbSet<Project> Projects => Set<Project>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -39,6 +40,19 @@ public class YmsDbContext : DbContext
         {
             e.HasQueryFilter(u => !u.IsDeleted);
             e.HasIndex(u => u.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<Project>(e =>
+        {
+            e.HasQueryFilter(p => !p.IsDeleted);
+            e.HasOne(p => p.Client).WithMany().HasForeignKey(p => p.ClientId);
+            e.HasOne(p => p.AssignedUser).WithMany().HasForeignKey(p => p.AssignedUserId).IsRequired(false);
+            e.HasMany(p => p.Vehicles).WithOne(v => v.Project).HasForeignKey(v => v.ProjectId).IsRequired(false);
+        });
+
+        modelBuilder.Entity<Vehicle>(e =>
+        {
+            e.Property(v => v.ProjectId).IsRequired(false);
         });
 
         modelBuilder.Entity<MasterItem>(e =>
