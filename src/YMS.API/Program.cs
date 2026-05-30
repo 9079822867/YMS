@@ -9,6 +9,7 @@ using YMS.Domain.Interfaces;
 using YMS.Infrastructure.Data;
 using YMS.Infrastructure.Repositories;
 using YMS.Infrastructure.Services;
+using YMS.Application.Interfaces;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,6 +31,7 @@ builder.Services.AddScoped<IRepository<YMS.Domain.Entities.MasterItem>, Reposito
 builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Client>, Repository<YMS.Domain.Entities.Client>>();
 builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Yard>, Repository<YMS.Domain.Entities.Yard>>();
 builder.Services.AddScoped<IJwtService, JwtService>();
+builder.Services.AddScoped<IExcelService, ExcelService>();
 
 var jwtSecret = builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("JWT:Secret is not configured");
