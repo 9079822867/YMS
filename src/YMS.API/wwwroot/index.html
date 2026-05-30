@@ -386,7 +386,10 @@ const Inventory = ({ onNav, user }) => {
                         <td className="px-3 py-2"><Badge text={v.runningStatus} map={RUNNING} /></td>
                         <td className="px-3 py-2"><Badge text={v.keyStatus} map={KEY} /></td>
                         <td className="px-3 py-2"><Badge text={v.rcStatus} map={RC} /></td>
-                        <td className="px-3 py-2 font-semibold">₹{v.parkingCharges}</td>
+                        <td className="px-3 py-2">
+                          <div className="font-semibold text-gray-800 text-xs">₹{((v.dailyParkingRate||0)*(v.daysInYard||1)).toLocaleString('en-IN')}</div>
+                          <div className="text-gray-400" style={{fontSize:'10px'}}>₹{v.dailyParkingRate||0}/d × {v.daysInYard||1}d</div>
+                        </td>
                         <td className="px-3 py-2">
                           <button onClick={()=>onNav('detail', v.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-lg text-xs transition-colors">
                             View/Edit
@@ -437,7 +440,7 @@ const NewEntry = ({ onBack }) => {
     make:'', model:'', variant:'', fuelType:'', transmissionType:'', manufacturingYear:'',
     vehicleType:'', color:'', runningStatus:'Running', keyStatus:'Yes', rcStatus:'Pending',
     batteryCondition:'', tyreCondition:'', odometerReading:'', insuranceAvailable:false,
-    parkingCharges:'450', towingCharges:'0', miscCharges:'0',
+    dailyParkingRate:'450', towingCharges:'0', miscCharges:'0',
   });
 
   useEffect(() => {
@@ -458,7 +461,7 @@ const NewEntry = ({ onBack }) => {
         clientId: Number(form.clientId), yardId: Number(form.yardId),
         manufacturingYear: form.manufacturingYear ? Number(form.manufacturingYear) : null,
         odometerReading: form.odometerReading ? Number(form.odometerReading) : null,
-        parkingCharges: Number(form.parkingCharges)||0,
+        dailyParkingRate: Number(form.dailyParkingRate)||450,
         towingCharges: Number(form.towingCharges)||0,
         miscCharges: Number(form.miscCharges)||0,
         repoDate: form.repoDate || null,
@@ -573,7 +576,7 @@ const NewEntry = ({ onBack }) => {
         </S>
 
         <S title="Charges (₹)">
-          <F label="Parking Charges"><input type="number" min="0" className={inp} value={form.parkingCharges} onChange={e=>set('parkingCharges',e.target.value)} /></F>
+          <F label="Daily Parking Rate (₹/day)"><input type="number" min="0" className={inp} value={form.dailyParkingRate} onChange={e=>set('dailyParkingRate',e.target.value)} /></F>
           <F label="Towing Charges"><input type="number" min="0" className={inp} value={form.towingCharges} onChange={e=>set('towingCharges',e.target.value)} /></F>
           <F label="Misc Charges"><input type="number" min="0" className={inp} value={form.miscCharges} onChange={e=>set('miscCharges',e.target.value)} /></F>
         </S>
@@ -585,6 +588,329 @@ const NewEntry = ({ onBack }) => {
           </button>
         </div>
       </form>
+    </div>
+  );
+};
+
+/* ── Vehicle Detail / Edit ── */
+const VehicleDetail = ({ vehicleId, user, onBack }) => {
+  const role = user?.role || '';
+  const canEdit = ['Admin','Operations'].includes(role);
+  const [vehicle, setVehicle] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState('');
+  const [toast, setToast] = useState('');
+  const [clients, setClients] = useState([]);
+  const [yards, setYards] = useState([]);
+  const [projects, setProjects] = useState([]);
+
+  const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3000); };
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await apiFetch(`/api/inventory/${vehicleId}`);
+      if (res.ok) { const d = await res.json(); setVehicle(d); }
+    } catch {} finally { setLoading(false); }
+  }, [vehicleId]);
+
+  useEffect(() => {
+    load();
+    apiFetch('/api/masters/clients').then(r=>r.json()).then(setClients).catch(()=>{});
+    apiFetch('/api/masters/yards').then(r=>r.json()).then(setYards).catch(()=>{});
+    apiFetch('/api/project?page=1&pageSize=100').then(r=>r.ok?r.json():{items:[]}).then(d=>setProjects(d.items||[])).catch(()=>{});
+  }, [load]);
+
+  const startEdit = () => {
+    setForm({
+      clientId: vehicle.clientId, yardId: vehicle.yardId, projectId: vehicle.projectId||'',
+      loanNumber: vehicle.loanNumber, customerName: vehicle.customerName||'',
+      branchName: vehicle.branchName||'', repoDate: vehicle.repoDate?.slice(0,10)||'',
+      registrationNumber: vehicle.registrationNumber, chassisNumber: vehicle.chassisNumber,
+      engineNumber: vehicle.engineNumber, make: vehicle.make||'', model: vehicle.model||'',
+      variant: vehicle.variant||'', fuelType: vehicle.fuelType||'',
+      transmissionType: vehicle.transmissionType||'', manufacturingYear: vehicle.manufacturingYear||'',
+      vehicleType: vehicle.vehicleType, color: vehicle.color||'',
+      runningStatus: vehicle.runningStatus, keyStatus: vehicle.keyStatus, rcStatus: vehicle.rcStatus,
+      batteryCondition: vehicle.batteryCondition||'', tyreCondition: vehicle.tyreCondition||'',
+      odometerReading: vehicle.odometerReading||'', insuranceAvailable: vehicle.insuranceAvailable||false,
+      dailyParkingRate: vehicle.dailyParkingRate||450, towingCharges: vehicle.towingCharges||0, miscCharges: vehicle.miscCharges||0,
+    });
+    setErr(''); setEditing(true);
+  };
+
+  const handleSave = async e => {
+    e.preventDefault(); setErr(''); setSaving(true);
+    try {
+      const body = { ...form,
+        clientId: Number(form.clientId), yardId: Number(form.yardId),
+        projectId: form.projectId ? Number(form.projectId) : null,
+        manufacturingYear: form.manufacturingYear ? Number(form.manufacturingYear) : null,
+        odometerReading: form.odometerReading ? Number(form.odometerReading) : null,
+        dailyParkingRate: Number(form.dailyParkingRate)||450,
+        towingCharges: Number(form.towingCharges)||0,
+        miscCharges: Number(form.miscCharges)||0,
+        repoDate: form.repoDate||null,
+      };
+      const res = await apiFetch(`/api/inventory/${vehicleId}`, { method:'PUT', body: JSON.stringify(body) });
+      if (!res.ok) { const e=await res.json(); setErr(e.message||'Error'); return; }
+      const updated = await res.json();
+      setVehicle(updated); setEditing(false);
+      showToast('Vehicle updated successfully!');
+    } catch { setErr('Server error'); } finally { setSaving(false); }
+  };
+
+  const setF = (k,v) => setForm(f=>({...f,[k]:v}));
+  const inp = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+  if (loading) return <div className="p-6"><Spinner /></div>;
+  if (!vehicle) return (
+    <div className="p-6 text-center">
+      <p className="text-red-500">Vehicle not found.</p>
+      <button onClick={onBack} className="mt-4 btn-secondary text-sm">← Back</button>
+    </div>
+  );
+
+  const days = vehicle.daysInYard || Math.max(1, Math.floor((Date.now() - new Date(vehicle.entryDate)) / 86400000) + 1);
+  const dailyRate = vehicle.dailyParkingRate || 0;
+  const totalParking = dailyRate * days;
+  const grandTotal = totalParking + (vehicle.towingCharges||0) + (vehicle.miscCharges||0);
+
+  const InfoRow = ({label, value, colored}) => (
+    <div className="flex justify-between py-1.5 border-b border-gray-100 last:border-0">
+      <span className="text-xs text-gray-500 font-medium">{label}</span>
+      <span className={`text-xs font-semibold ${colored||'text-gray-800'}`}>{value||'—'}</span>
+    </div>
+  );
+
+  const Section = ({title, children}) => (
+    <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
+      <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-3 pb-2 border-b">{title}</h3>
+      {children}
+    </div>
+  );
+
+  return (
+    <div className="p-6 max-w-5xl mx-auto">
+      {toast && <div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm">✓ {toast}</div>}
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <button onClick={onBack} className="text-blue-600 hover:text-blue-800 text-sm font-medium mb-1 flex items-center gap-1">← Back to Inventory</button>
+          <h2 className="text-2xl font-bold text-gray-800">{vehicle.registrationNumber}</h2>
+          <p className="text-sm text-gray-500">{vehicle.vehicleType} · {vehicle.clientName} · {vehicle.yardName}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge text={vehicle.runningStatus} map={RUNNING} />
+          <Badge text={vehicle.keyStatus} map={KEY} />
+          <Badge text={vehicle.rcStatus} map={RC} />
+          {canEdit && !editing && (
+            <button onClick={startEdit} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-xl text-sm ml-2">
+              ✏️ Edit
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Edit Form */}
+      {editing ? (
+        <form onSubmit={handleSave}>
+          {err && <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 mb-4 text-sm">{err}</div>}
+
+          {/* Loan & Owner */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-3 pb-2 border-b">Loan & Ownership</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[['clientId','Client *','select'],['projectId','Project','select'],['loanNumber','Loan Number *','text'],
+                ['customerName','Customer Name','text'],['branchName','Branch Name','text'],['repoDate','Repo Date','date']].map(([k,l,t])=>(
+                <div key={k}><label className="block text-xs font-medium text-gray-600 mb-1">{l}</label>
+                  {t==='select' && k==='clientId' ? (
+                    <select required className={inp} value={form[k]} onChange={e=>setF(k,e.target.value)}>
+                      <option value="">Select Client</option>
+                      {clients.map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                  ) : t==='select' && k==='projectId' ? (
+                    <select className={inp} value={form[k]} onChange={e=>setF(k,e.target.value)}>
+                      <option value="">No Project</option>
+                      {projects.map(p=><option key={p.id} value={p.id}>{p.projectName}</option>)}
+                    </select>
+                  ) : (
+                    <input type={t} className={inp} value={form[k]||''} onChange={e=>setF(k,e.target.value)} />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Vehicle Info */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-3 pb-2 border-b">Vehicle Information</h3>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {[['registrationNumber','Reg No *'],['chassisNumber','Chassis No *'],['engineNumber','Engine No *'],
+                ['make','Make'],['model','Model'],['variant','Variant'],['color','Color'],['manufacturingYear','Year']].map(([k,l])=>(
+                <div key={k}><label className="block text-xs font-medium text-gray-600 mb-1">{l}</label>
+                  <input className={inp+(k==='registrationNumber'||k==='chassisNumber'||k==='engineNumber'?' uppercase':'')}
+                    value={form[k]||''} onChange={e=>setF(k,(k==='registrationNumber'||k==='chassisNumber')?e.target.value.toUpperCase():e.target.value)} />
+                </div>
+              ))}
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Yard *</label>
+                <select required className={inp} value={form.yardId} onChange={e=>setF('yardId',e.target.value)}>
+                  <option value="">Select Yard</option>
+                  {yards.map(y=><option key={y.id} value={y.id}>{y.name} — {y.city}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Vehicle Type *</label>
+                <select required className={inp} value={form.vehicleType} onChange={e=>setF('vehicleType',e.target.value)}>
+                  {['Car','Bike','Truck','Bus','Auto','Van','SUV','Other'].map(t=><option key={t}>{t}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Fuel Type</label>
+                <select className={inp} value={form.fuelType} onChange={e=>setF('fuelType',e.target.value)}>
+                  <option value="">Select</option>
+                  {['Petrol','Diesel','CNG','Electric','Hybrid'].map(t=><option key={t}>{t}</option>)}
+                </select></div>
+            </div>
+          </div>
+
+          {/* Status */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-3 pb-2 border-b">Status</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Running Status</label>
+                <select className={inp} value={form.runningStatus} onChange={e=>setF('runningStatus',e.target.value)}>
+                  {['Running','Red/Idle','Auctioned','Released','Sold','Scrap'].map(s=><option key={s}>{s}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Key Status</label>
+                <select className={inp} value={form.keyStatus} onChange={e=>setF('keyStatus',e.target.value)}>
+                  {['Yes','No','Duplicate Key','Missing'].map(s=><option key={s}>{s}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">RC Status</label>
+                <select className={inp} value={form.rcStatus} onChange={e=>setF('rcStatus',e.target.value)}>
+                  {['Submitted','Pending','Not Available','Duplicate'].map(s=><option key={s}>{s}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Odometer (km)</label>
+                <input type="number" min="0" className={inp} value={form.odometerReading||''} onChange={e=>setF('odometerReading',e.target.value)} /></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Battery Condition</label>
+                <select className={inp} value={form.batteryCondition} onChange={e=>setF('batteryCondition',e.target.value)}>
+                  <option value="">N/A</option>
+                  {['Good','Fair','Poor','Dead'].map(s=><option key={s}>{s}</option>)}
+                </select></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Tyre Condition</label>
+                <select className={inp} value={form.tyreCondition} onChange={e=>setF('tyreCondition',e.target.value)}>
+                  <option value="">N/A</option>
+                  {['Good','Fair','Poor','Flat'].map(s=><option key={s}>{s}</option>)}
+                </select></div>
+              <div className="flex items-center gap-2 mt-5">
+                <input type="checkbox" checked={!!form.insuranceAvailable} onChange={e=>setF('insuranceAvailable',e.target.checked)} className="w-4 h-4 accent-blue-600" />
+                <label className="text-sm text-gray-700 font-medium">Insurance Available</label>
+              </div>
+            </div>
+          </div>
+
+          {/* Charges */}
+          <div className="bg-white rounded-2xl shadow-sm p-5 mb-4">
+            <h3 className="text-xs font-bold uppercase tracking-wide text-gray-500 mb-3 pb-2 border-b">Charges</h3>
+            <div className="grid grid-cols-3 gap-4">
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Daily Parking Rate (₹/day)</label>
+                <input type="number" min="0" className={inp} value={form.dailyParkingRate||''} onChange={e=>setF('dailyParkingRate',e.target.value)} /></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Towing Charges (₹)</label>
+                <input type="number" min="0" className={inp} value={form.towingCharges||''} onChange={e=>setF('towingCharges',e.target.value)} /></div>
+              <div><label className="block text-xs font-medium text-gray-600 mb-1">Misc Charges (₹)</label>
+                <input type="number" min="0" className={inp} value={form.miscCharges||''} onChange={e=>setF('miscCharges',e.target.value)} /></div>
+            </div>
+            <div className="mt-3 bg-blue-50 rounded-xl px-4 py-2 text-sm text-blue-800 font-medium">
+              Preview: ₹{Number(form.dailyParkingRate||0).toFixed(0)}/day × {days} days = <strong>₹{(Number(form.dailyParkingRate||0)*days).toLocaleString('en-IN')}</strong>
+              {' '}+ ₹{Number(form.towingCharges||0).toFixed(0)} + ₹{Number(form.miscCharges||0).toFixed(0)}
+              {' '}= <strong>₹{(Number(form.dailyParkingRate||0)*days + Number(form.towingCharges||0) + Number(form.miscCharges||0)).toLocaleString('en-IN')}</strong>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-3">
+            <button type="button" onClick={()=>setEditing(false)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-6 py-2 rounded-xl text-sm">Cancel</button>
+            <button type="submit" disabled={saving} className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white font-semibold px-8 py-2 rounded-xl text-sm">
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      ) : (
+        /* ── View Mode ── */
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Charges Card — prominent */}
+          <div className="md:col-span-3 bg-gradient-to-r from-blue-600 to-blue-800 rounded-2xl p-5 text-white">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+              <div className="text-center">
+                <p className="text-blue-200 text-xs">Days in Yard</p>
+                <p className="text-3xl font-bold mt-1">{days}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-blue-200 text-xs">Daily Rate</p>
+                <p className="text-3xl font-bold mt-1">₹{dailyRate.toLocaleString('en-IN')}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-blue-200 text-xs">Parking ({days} days)</p>
+                <p className="text-3xl font-bold mt-1">₹{totalParking.toLocaleString('en-IN')}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-blue-200 text-xs">Towing + Misc</p>
+                <p className="text-3xl font-bold mt-1">₹{((vehicle.towingCharges||0)+(vehicle.miscCharges||0)).toLocaleString('en-IN')}</p>
+              </div>
+              <div className="text-center bg-white bg-opacity-20 rounded-xl p-2">
+                <p className="text-blue-100 text-xs font-semibold">TOTAL DUE</p>
+                <p className="text-3xl font-bold mt-1">₹{grandTotal.toLocaleString('en-IN')}</p>
+                <p className="text-blue-200 text-xs mt-1">Entry: {new Date(vehicle.entryDate).toLocaleDateString('en-IN')}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Left column */}
+          <div>
+            <Section title="Loan Details">
+              <InfoRow label="Loan Number"   value={vehicle.loanNumber} />
+              <InfoRow label="Customer Name" value={vehicle.customerName} />
+              <InfoRow label="Branch"        value={vehicle.branchName} />
+              <InfoRow label="Client"        value={vehicle.clientName} />
+              <InfoRow label="Repo Date"     value={vehicle.repoDate ? new Date(vehicle.repoDate).toLocaleDateString('en-IN') : null} />
+            </Section>
+            <Section title="Project">
+              <InfoRow label="Project" value={vehicle.projectName||'Not assigned'} colored={vehicle.projectName?'text-blue-600':undefined} />
+            </Section>
+          </div>
+
+          {/* Middle column */}
+          <div>
+            <Section title="Vehicle Information">
+              <InfoRow label="Registration" value={vehicle.registrationNumber} />
+              <InfoRow label="Chassis No"   value={vehicle.chassisNumber} />
+              <InfoRow label="Engine No"    value={vehicle.engineNumber} />
+              <InfoRow label="Make / Model" value={[vehicle.make, vehicle.model, vehicle.variant].filter(Boolean).join(' ')} />
+              <InfoRow label="Type"         value={vehicle.vehicleType} />
+              <InfoRow label="Fuel"         value={vehicle.fuelType} />
+              <InfoRow label="Year"         value={vehicle.manufacturingYear} />
+              <InfoRow label="Color"        value={vehicle.color} />
+              <InfoRow label="Odometer"     value={vehicle.odometerReading ? `${vehicle.odometerReading.toLocaleString('en-IN')} km` : null} />
+            </Section>
+          </div>
+
+          {/* Right column */}
+          <div>
+            <Section title="Status">
+              <InfoRow label="Running" value={vehicle.runningStatus} />
+              <InfoRow label="Key"     value={vehicle.keyStatus} />
+              <InfoRow label="RC"      value={vehicle.rcStatus} />
+              <InfoRow label="Battery" value={vehicle.batteryCondition} />
+              <InfoRow label="Tyres"   value={vehicle.tyreCondition} />
+              <InfoRow label="Insurance" value={vehicle.insuranceAvailable?'Available':'Not Available'} />
+            </Section>
+            <Section title="Yard">
+              <InfoRow label="Yard"  value={vehicle.yardName} />
+              <InfoRow label="City"  value={vehicle.yardCity} />
+              <InfoRow label="State" value={vehicle.yardState} />
+            </Section>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1344,6 +1670,7 @@ const App = () => {
       {page === 'dashboard' && can(role,'dashboard') && <Dashboard onNav={onNav} />}
       {page === 'inventory' && can(role,'inventory') && <Inventory onNav={onNav} user={user} />}
       {page === 'newentry'  && can(role,'newEntry')  && <NewEntry  onBack={()=>onNav('inventory')} />}
+      {page === 'detail'    && can(role,'inventory')  && <VehicleDetail vehicleId={extra} user={user} onBack={()=>onNav('inventory')} />}
       {page === 'projects'  && can(role,'projects')  && <Projects user={user} />}
       {page === 'masters'   && can(role,'masters')   && <Masters />}
       {page === 'users'     && can(role,'users')     && <UserManagement />}

@@ -39,6 +39,17 @@ public class InventoryController : ControllerBase
         return CreatedAtAction(nameof(GetById), new { id = created.Id }, created);
     }
 
+    [HttpPut("{id:int}")]
+    [Authorize(Roles = "Admin,Operations")]
+    public async Task<IActionResult> Update(int id, [FromBody] UpdateVehicleRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var (ok, err) = await _inventoryService.UpdateVehicleAsync(id, request);
+        if (!ok) return err == "Vehicle not found" ? NotFound() : BadRequest(new { message = err });
+        var updated = await _inventoryService.GetByIdAsync(id);
+        return Ok(updated);
+    }
+
     [HttpPatch("{id:int}/status")]
     public async Task<IActionResult> UpdateStatus(int id, [FromBody] UpdateVehicleStatusRequest request)
     {

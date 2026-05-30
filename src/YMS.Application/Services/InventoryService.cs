@@ -66,9 +66,10 @@ public class InventoryService : IInventoryService
             TyreCondition = request.TyreCondition,
             OdometerReading = request.OdometerReading,
             InsuranceAvailable = request.InsuranceAvailable,
-            ParkingCharges = request.ParkingCharges,
+            ParkingCharges = request.DailyParkingRate,   // stored as daily rate
             TowingCharges = request.TowingCharges,
             MiscCharges = request.MiscCharges,
+            ProjectId = request.ProjectId,
             EntryDate = DateTime.UtcNow
         };
 
@@ -119,6 +120,46 @@ public class InventoryService : IInventoryService
         };
     }
 
+    public async Task<(bool Success, string Error)> UpdateVehicleAsync(int id, UpdateVehicleRequest request)
+    {
+        var vehicle = await _repository.GetByIdAsync(id);
+        if (vehicle is null) return (false, "Vehicle not found");
+
+        vehicle.ClientId          = request.ClientId;
+        vehicle.YardId            = request.YardId;
+        vehicle.LoanNumber        = request.LoanNumber;
+        vehicle.CustomerName      = request.CustomerName;
+        vehicle.BranchName        = request.BranchName;
+        vehicle.RepoDate          = request.RepoDate;
+        vehicle.RegistrationNumber = request.RegistrationNumber;
+        vehicle.ChassisNumber     = request.ChassisNumber;
+        vehicle.EngineNumber      = request.EngineNumber;
+        vehicle.Make              = request.Make;
+        vehicle.Model             = request.Model;
+        vehicle.Variant           = request.Variant;
+        vehicle.FuelType          = request.FuelType;
+        vehicle.TransmissionType  = request.TransmissionType;
+        vehicle.ManufacturingYear = request.ManufacturingYear;
+        vehicle.VehicleType       = request.VehicleType;
+        vehicle.Color             = request.Color;
+        vehicle.RunningStatus     = request.RunningStatus;
+        vehicle.KeyStatus         = request.KeyStatus;
+        vehicle.RcStatus          = request.RcStatus;
+        vehicle.BatteryCondition  = request.BatteryCondition;
+        vehicle.TyreCondition     = request.TyreCondition;
+        vehicle.OdometerReading   = request.OdometerReading;
+        vehicle.InsuranceAvailable = request.InsuranceAvailable;
+        vehicle.ParkingCharges    = request.DailyParkingRate;   // stored as daily rate
+        vehicle.TowingCharges     = request.TowingCharges;
+        vehicle.MiscCharges       = request.MiscCharges;
+        vehicle.ProjectId         = request.ProjectId;
+        vehicle.UpdatedAt         = DateTime.UtcNow;
+
+        _repository.Update(vehicle);
+        await _repository.SaveChangesAsync();
+        return (true, string.Empty);
+    }
+
     private static VehicleListDto MapToListDto(Vehicle v) => new()
     {
         Id = v.Id,
@@ -134,7 +175,7 @@ public class InventoryService : IInventoryService
         RunningStatus = v.RunningStatus,
         KeyStatus = v.KeyStatus,
         RcStatus = v.RcStatus,
-        ParkingCharges = v.ParkingCharges,
+        DailyParkingRate = v.ParkingCharges,   // stored as daily rate in DB
         EntryDate = v.EntryDate,
         HasReport = v.Reports.Any()
     };
@@ -154,9 +195,13 @@ public class InventoryService : IInventoryService
         RunningStatus = v.RunningStatus,
         KeyStatus = v.KeyStatus,
         RcStatus = v.RcStatus,
-        ParkingCharges = v.ParkingCharges,
+        DailyParkingRate = v.ParkingCharges,
         EntryDate = v.EntryDate,
         HasReport = v.Reports.Any(),
+        ClientId = v.ClientId,
+        YardId = v.YardId,
+        ProjectId = v.ProjectId,
+        ProjectName = v.Project?.ProjectName,
         CustomerName = v.CustomerName,
         BranchName = v.BranchName,
         RepoDate = v.RepoDate,

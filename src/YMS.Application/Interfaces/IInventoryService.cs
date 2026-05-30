@@ -8,6 +8,7 @@ public interface IInventoryService
     Task<VehicleDetailDto?> GetByIdAsync(int id);
     Task<VehicleDetailDto> CreateAsync(CreateVehicleRequest request);
     Task<bool> UpdateStatusAsync(int id, UpdateVehicleStatusRequest request);
+    Task<(bool Success, string Error)> UpdateVehicleAsync(int id, UpdateVehicleRequest request);
     Task<bool> DeleteAsync(int id);
     Task<DashboardResponse> GetDashboardStatsAsync();
 }

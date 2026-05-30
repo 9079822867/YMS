@@ -15,9 +15,15 @@ public class VehicleListDto
     public string RunningStatus { get; set; } = string.Empty;
     public string KeyStatus { get; set; } = string.Empty;
     public string RcStatus { get; set; } = string.Empty;
-    public decimal ParkingCharges { get; set; }
+
+    // ParkingCharges stored as daily rate
+    public decimal DailyParkingRate { get; set; }
     public DateTime EntryDate { get; set; }
     public bool HasReport { get; set; }
+
+    // Computed
+    public int DaysInYard => Math.Max(1, (int)(DateTime.UtcNow - EntryDate).TotalDays + 1);
+    public decimal TotalParkingCharges => DailyParkingRate * DaysInYard;
 }
 
 public class VehicleDetailDto : VehicleListDto
@@ -38,7 +44,13 @@ public class VehicleDetailDto : VehicleListDto
     public bool InsuranceAvailable { get; set; }
     public decimal TowingCharges { get; set; }
     public decimal MiscCharges { get; set; }
-    public decimal TotalCharges => ParkingCharges + TowingCharges + MiscCharges;
+    public int ClientId { get; set; }
+    public int YardId { get; set; }
+    public int? ProjectId { get; set; }
+    public string? ProjectName { get; set; }
+
+    // Grand total
+    public decimal TotalCharges => TotalParkingCharges + TowingCharges + MiscCharges;
 }
 
 public class CreateVehicleRequest
@@ -67,10 +79,14 @@ public class CreateVehicleRequest
     public string? TyreCondition { get; set; }
     public int? OdometerReading { get; set; }
     public bool InsuranceAvailable { get; set; }
-    public decimal ParkingCharges { get; set; }
+    public decimal DailyParkingRate { get; set; } = 450;    // per-day rate
     public decimal TowingCharges { get; set; }
     public decimal MiscCharges { get; set; }
+    public int? ProjectId { get; set; }
 }
+
+/// <summary>Full vehicle edit — same fields as create</summary>
+public class UpdateVehicleRequest : CreateVehicleRequest { }
 
 public class UpdateVehicleStatusRequest
 {

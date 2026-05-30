@@ -93,7 +93,7 @@ public class InventoryServiceTests
             ChassisNumber = "CH010", EngineNumber = "EN010",
             VehicleType = "Car", RunningStatus = "Running",
             KeyStatus = "Yes", RcStatus = "Pending",
-            ParkingCharges = 450
+            DailyParkingRate = 450
         };
 
         var result = await _service.CreateAsync(request);
