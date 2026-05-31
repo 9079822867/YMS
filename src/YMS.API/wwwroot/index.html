@@ -741,6 +741,216 @@ const NewEntry = ({ onBack }) => {
   );
 };
 
+/* ── shared helpers for module pages ── */
+const useVehicles = () => {
+  const [vehicles, setVehicles] = useState([]);
+  const loadVehicles = useCallback(async () => {
+    const res = await apiFetch('/api/inventory?page=1&pageSize=500');
+    if (res.ok) { const d = await res.json(); setVehicles(d.items||[]); }
+  }, []);
+  return [vehicles, loadVehicles];
+};
+const fmtMoney = n => n==null ? '—' : '₹'+Number(n).toLocaleString('en-IN');
+const fmtDate  = d => d ? new Date(d).toLocaleDateString('en-IN') : '—';
+const ModalShell = ({title, onClose, children}) => (
+  <div className="fixed inset-0 z-40 flex items-center justify-center p-4" style={{background:'rgba(0,0,0,0.5)'}}>
+    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+      <div className="flex items-center justify-between px-6 py-4 border-b sticky top-0 bg-white">
+        <h3 className="text-lg font-bold text-gray-800">{title}</h3>
+        <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl font-bold">×</button>
+      </div>
+      <div className="p-6">{children}</div>
+    </div>
+  </div>
+);
+const INP = "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+
+/* ── Transfers (Module 7) ── */
+const TRANSFER_COLORS = { Requested:'bg-yellow-500', Approved:'bg-blue-600', Dispatched:'bg-indigo-600', Received:'bg-green-600', Rejected:'bg-red-600', Cancelled:'bg-gray-400' };
+const Transfers = ({ user }) => {
+  const role = user?.role || '';
+  const [rows,setRows]=useState([]); const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(false); const [vehicles,loadVehicles]=useVehicles();
+  const [yards,setYards]=useState([]); const [form,setForm]=useState({vehicleId:'',toYardId:'',reason:''});
+  const [err,setErr]=useState(''); const [toast,setToast]=useState('');
+  const showToast=m=>{setToast(m);setTimeout(()=>setToast(''),3000);};
+  const load=useCallback(async()=>{setLoading(true);try{const r=await apiFetch('/api/transfers');if(r.ok)setRows(await r.json());}catch{}finally{setLoading(false);}},[]);
+  useEffect(()=>{load();apiFetch('/api/masters/yards').then(r=>r.json()).then(setYards).catch(()=>{});},[load]);
+  const openCreate=()=>{setForm({vehicleId:'',toYardId:'',reason:''});setErr('');setModal(true);loadVehicles();};
+  const submit=async e=>{e.preventDefault();setErr('');const r=await apiFetch('/api/transfers',{method:'POST',body:JSON.stringify({...form,vehicleId:Number(form.vehicleId),toYardId:Number(form.toYardId)})});const d=await r.json();if(!r.ok){setErr(d.message||'Error');return;}setModal(false);showToast('Transfer requested');load();};
+  const act=async(id,path)=>{const r=await apiFetch(`/api/transfers/${id}/${path}`,{method:'POST',body:path==='approve'?JSON.stringify({approve:true}):undefined});if(r.ok||r.status===204){showToast('Done');load();}else{const d=await r.json();showToast(d.message||'Error');}};
+  const reject=async id=>{const reason=prompt('Rejection reason:');if(reason===null)return;const r=await apiFetch(`/api/transfers/${id}/approve`,{method:'POST',body:JSON.stringify({approve:false,rejectionReason:reason})});if(r.ok||r.status===204){showToast('Rejected');load();}};
+  return (<div className="p-6">
+    {toast&&<div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm">✓ {toast}</div>}
+    <div className="flex items-center justify-between mb-5">
+      <div><h2 className="text-2xl font-bold text-gray-800">Inter-Yard Transfers</h2><p className="text-sm text-gray-500 mt-1">Request → Approve → Dispatch → Receive</p></div>
+      <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">+ New Transfer</button>
+    </div>
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+      {loading?<Spinner/>:<table className="w-full text-sm">
+        <thead className="bg-blue-600 text-white text-xs"><tr>{['#','Vehicle','From Yard','To Yard','Status','Reason','Created','Actions'].map(h=><th key={h} className="px-4 py-3 text-left whitespace-nowrap font-semibold">{h}</th>)}</tr></thead>
+        <tbody>{rows.length===0?<tr><td colSpan={8} className="text-center py-16 text-gray-400">No transfers yet.</td></tr>:rows.map((r,i)=>(
+          <tr key={r.id} className="border-b hover:bg-blue-50"><td className="px-4 py-3 text-gray-400 text-xs">{i+1}</td>
+            <td className="px-4 py-3 font-mono text-xs font-semibold">{r.registrationNumber}</td>
+            <td className="px-4 py-3">{r.fromYardName}</td><td className="px-4 py-3">{r.toYardName}</td>
+            <td className="px-4 py-3"><span className={`badge ${TRANSFER_COLORS[r.status]||'bg-gray-400'}`}>{r.status}</span></td>
+            <td className="px-4 py-3 text-xs">{r.reason||'—'}</td><td className="px-4 py-3 text-xs text-gray-500">{fmtDate(r.createdAt)}</td>
+            <td className="px-4 py-3"><div className="flex gap-1.5 flex-wrap">
+              {r.status==='Requested'&&can(role,'approveExit')&&<><button onClick={()=>act(r.id,'approve')} className="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-lg text-xs font-medium">Approve</button><button onClick={()=>reject(r.id)} className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg text-xs font-medium">Reject</button></>}
+              {r.status==='Requested'&&!can(role,'approveExit')&&<span className="text-xs text-gray-400 italic">awaiting approval</span>}
+              {r.status==='Approved'&&<button onClick={()=>act(r.id,'dispatch')} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1 rounded-lg text-xs font-medium">Dispatch</button>}
+              {r.status==='Dispatched'&&<button onClick={()=>act(r.id,'receive')} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg text-xs font-medium">Receive</button>}
+              {(r.status==='Requested'||r.status==='Approved')&&<button onClick={()=>act(r.id,'cancel')} className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg text-xs font-medium">Cancel</button>}
+              {r.status==='Received'&&<span className="text-xs text-green-600 font-medium">✓ {fmtDate(r.receivedAt)}</span>}
+            </div></td></tr>))}</tbody></table>}
+    </div>
+    {modal&&<ModalShell title="New Transfer Request" onClose={()=>setModal(false)}>
+      <form onSubmit={submit} className="space-y-4">
+        {err&&<div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm">{err}</div>}
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Vehicle *</label><select required className={INP} value={form.vehicleId} onChange={e=>setForm(f=>({...f,vehicleId:e.target.value}))}><option value="">Select Vehicle</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.registrationNumber} — {v.yardName}</option>)}</select></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Destination Yard *</label><select required className={INP} value={form.toYardId} onChange={e=>setForm(f=>({...f,toYardId:e.target.value}))}><option value="">Select Yard</option>{yards.map(y=><option key={y.id} value={y.id}>{y.name} — {y.city}</option>)}</select></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Reason</label><input className={INP} value={form.reason} onChange={e=>setForm(f=>({...f,reason:e.target.value}))}/></div>
+        <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={()=>setModal(false)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-xl text-sm">Create</button></div>
+      </form></ModalShell>}
+  </div>);
+};
+
+/* ── Inspections (Module 5) ── */
+const INSP_COLORS = { Requested:'bg-yellow-500', Scheduled:'bg-blue-600', Completed:'bg-green-600', Cancelled:'bg-gray-400' };
+const Inspections = ({ user }) => {
+  const [rows,setRows]=useState([]); const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(false); const [vehicles,loadVehicles]=useVehicles();
+  const [form,setForm]=useState({vehicleId:'',valuationAgency:'',scheduledDate:''});
+  const [completeModal,setCompleteModal]=useState(null); const [valuation,setValuation]=useState('');
+  const [err,setErr]=useState(''); const [toast,setToast]=useState('');
+  const showToast=m=>{setToast(m);setTimeout(()=>setToast(''),3000);};
+  const load=useCallback(async()=>{setLoading(true);try{const r=await apiFetch('/api/inspections');if(r.ok)setRows(await r.json());}catch{}finally{setLoading(false);}},[]);
+  useEffect(()=>{load();},[load]);
+  const openCreate=()=>{setForm({vehicleId:'',valuationAgency:'',scheduledDate:''});setErr('');setModal(true);loadVehicles();};
+  const submit=async e=>{e.preventDefault();setErr('');const r=await apiFetch('/api/inspections',{method:'POST',body:JSON.stringify({...form,vehicleId:Number(form.vehicleId),scheduledDate:form.scheduledDate||null})});const d=await r.json();if(!r.ok){setErr(d.message||'Error');return;}setModal(false);showToast('Inspection requested');load();};
+  const complete=async e=>{e.preventDefault();const r=await apiFetch(`/api/inspections/${completeModal.id}/complete`,{method:'POST',body:JSON.stringify({valuationAmount:Number(valuation)})});if(r.ok||r.status===204){setCompleteModal(null);setValuation('');showToast('Inspection completed');load();}else{const d=await r.json();alert(d.message);}};
+  const cancel=async id=>{if(!confirm('Cancel inspection?'))return;const r=await apiFetch(`/api/inspections/${id}/cancel`,{method:'POST'});if(r.ok||r.status===204){showToast('Cancelled');load();}};
+  return (<div className="p-6">
+    {toast&&<div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm">✓ {toast}</div>}
+    <div className="flex items-center justify-between mb-5">
+      <div><h2 className="text-2xl font-bold text-gray-800">Inspection &amp; Valuation</h2><p className="text-sm text-gray-500 mt-1">Request → Schedule → Complete with valuation</p></div>
+      <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">+ Request Inspection</button>
+    </div>
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+      {loading?<Spinner/>:<table className="w-full text-sm">
+        <thead className="bg-blue-600 text-white text-xs"><tr>{['#','Vehicle','Client','Status','Agency','Scheduled','Valuation','Actions'].map(h=><th key={h} className="px-4 py-3 text-left whitespace-nowrap font-semibold">{h}</th>)}</tr></thead>
+        <tbody>{rows.length===0?<tr><td colSpan={8} className="text-center py-16 text-gray-400">No inspections yet.</td></tr>:rows.map((r,i)=>(
+          <tr key={r.id} className="border-b hover:bg-blue-50"><td className="px-4 py-3 text-gray-400 text-xs">{i+1}</td>
+            <td className="px-4 py-3 font-mono text-xs font-semibold">{r.registrationNumber}</td><td className="px-4 py-3">{r.clientName}</td>
+            <td className="px-4 py-3"><span className={`badge ${INSP_COLORS[r.status]||'bg-gray-400'}`}>{r.status}</span></td>
+            <td className="px-4 py-3 text-xs">{r.valuationAgency||'—'}</td><td className="px-4 py-3 text-xs">{fmtDate(r.scheduledDate)}</td>
+            <td className="px-4 py-3 font-semibold text-xs">{fmtMoney(r.valuationAmount)}</td>
+            <td className="px-4 py-3"><div className="flex gap-1.5 flex-wrap">
+              {(r.status==='Requested'||r.status==='Scheduled')&&<><button onClick={()=>{setCompleteModal(r);setValuation('');}} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg text-xs font-medium">Complete</button><button onClick={()=>cancel(r.id)} className="bg-gray-100 hover:bg-gray-200 text-gray-600 px-3 py-1 rounded-lg text-xs font-medium">Cancel</button></>}
+              {r.status==='Completed'&&<span className="text-xs text-green-600 font-medium">✓ Valued {fmtDate(r.completedDate)}</span>}
+            </div></td></tr>))}</tbody></table>}
+    </div>
+    {modal&&<ModalShell title="Request Inspection" onClose={()=>setModal(false)}>
+      <form onSubmit={submit} className="space-y-4">
+        {err&&<div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm">{err}</div>}
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Vehicle *</label><select required className={INP} value={form.vehicleId} onChange={e=>setForm(f=>({...f,vehicleId:e.target.value}))}><option value="">Select Vehicle</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.registrationNumber} — {v.clientName}</option>)}</select></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Valuation Agency</label><input className={INP} value={form.valuationAgency} onChange={e=>setForm(f=>({...f,valuationAgency:e.target.value}))} placeholder="e.g. ABC Valuers"/></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Scheduled Date</label><input type="date" className={INP} value={form.scheduledDate} onChange={e=>setForm(f=>({...f,scheduledDate:e.target.value}))}/></div>
+        <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={()=>setModal(false)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-xl text-sm">Request</button></div>
+      </form></ModalShell>}
+    {completeModal&&<ModalShell title={`Complete — ${completeModal.registrationNumber}`} onClose={()=>setCompleteModal(null)}>
+      <form onSubmit={complete} className="space-y-4">
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Valuation Amount (₹) *</label><input type="number" min="1" required className={INP} value={valuation} onChange={e=>setValuation(e.target.value)} placeholder="e.g. 250000"/></div>
+        <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={()=>setCompleteModal(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button><button type="submit" className="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-2 rounded-xl text-sm">Save Valuation</button></div>
+      </form></ModalShell>}
+  </div>);
+};
+
+/* ── Auctions (Module 8) ── */
+const AUCTION_COLORS = { Listed:'bg-blue-600', 'Bid Open':'bg-indigo-600', Sold:'bg-green-600', Unsold:'bg-orange-500', Cancelled:'bg-gray-400' };
+const Auctions = ({ user }) => {
+  const [rows,setRows]=useState([]); const [loading,setLoading]=useState(true);
+  const [modal,setModal]=useState(false); const [vehicles,loadVehicles]=useVehicles();
+  const [form,setForm]=useState({vehicleId:'',platform:'MSTC',reservePrice:'',auctionDate:''});
+  const [bidModal,setBidModal]=useState(null); const [bid,setBid]=useState('');
+  const [sellModal,setSellModal]=useState(null); const [sell,setSell]=useState({salePrice:'',buyerName:'',buyerContact:''});
+  const [err,setErr]=useState(''); const [toast,setToast]=useState('');
+  const showToast=m=>{setToast(m);setTimeout(()=>setToast(''),3000);};
+  const load=useCallback(async()=>{setLoading(true);try{const r=await apiFetch('/api/auctions');if(r.ok)setRows(await r.json());}catch{}finally{setLoading(false);}},[]);
+  useEffect(()=>{load();},[load]);
+  const openCreate=()=>{setForm({vehicleId:'',platform:'MSTC',reservePrice:'',auctionDate:''});setErr('');setModal(true);loadVehicles();};
+  const submit=async e=>{e.preventDefault();setErr('');const r=await apiFetch('/api/auctions',{method:'POST',body:JSON.stringify({...form,vehicleId:Number(form.vehicleId),reservePrice:Number(form.reservePrice),auctionDate:form.auctionDate||null})});const d=await r.json();if(!r.ok){setErr(d.message||'Error');return;}setModal(false);showToast('Listed for auction');load();};
+  const submitBid=async e=>{e.preventDefault();const r=await apiFetch(`/api/auctions/${bidModal.id}/bid`,{method:'POST',body:JSON.stringify({bidAmount:Number(bid)})});if(r.ok||r.status===204){setBidModal(null);setBid('');showToast('Bid recorded');load();}else{const d=await r.json();alert(d.message);}};
+  const submitSell=async e=>{e.preventDefault();const r=await apiFetch(`/api/auctions/${sellModal.id}/sell`,{method:'POST',body:JSON.stringify({...sell,salePrice:Number(sell.salePrice)})});if(r.ok||r.status===204){setSellModal(null);setSell({salePrice:'',buyerName:'',buyerContact:''});showToast('Sold!');load();}else{const d=await r.json();alert(d.message);}};
+  const unsold=async id=>{const r=await apiFetch(`/api/auctions/${id}/unsold`,{method:'POST'});if(r.ok||r.status===204){showToast('Marked unsold');load();}};
+  return (<div className="p-6">
+    {toast&&<div className="fixed top-4 right-4 z-50 bg-green-600 text-white px-5 py-3 rounded-xl shadow-lg text-sm">✓ {toast}</div>}
+    <div className="flex items-center justify-between mb-5">
+      <div><h2 className="text-2xl font-bold text-gray-800">Auction Management</h2><p className="text-sm text-gray-500 mt-1">List → Bid → Sell · MSTC / C1 India / Internal</p></div>
+      <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">+ List for Auction</button>
+    </div>
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+      {loading?<Spinner/>:<table className="w-full text-sm">
+        <thead className="bg-blue-600 text-white text-xs"><tr>{['#','Vehicle','Client','Status','Platform','Reserve','Highest Bid','Sale','Buyer','Actions'].map(h=><th key={h} className="px-4 py-3 text-left whitespace-nowrap font-semibold">{h}</th>)}</tr></thead>
+        <tbody>{rows.length===0?<tr><td colSpan={10} className="text-center py-16 text-gray-400">No auctions yet.</td></tr>:rows.map((r,i)=>(
+          <tr key={r.id} className="border-b hover:bg-blue-50"><td className="px-4 py-3 text-gray-400 text-xs">{i+1}</td>
+            <td className="px-4 py-3 font-mono text-xs font-semibold">{r.registrationNumber}</td><td className="px-4 py-3">{r.clientName}</td>
+            <td className="px-4 py-3"><span className={`badge ${AUCTION_COLORS[r.status]||'bg-gray-400'}`}>{r.status}</span></td>
+            <td className="px-4 py-3 text-xs">{r.platform||'—'}</td><td className="px-4 py-3 text-xs">{fmtMoney(r.reservePrice)}</td>
+            <td className="px-4 py-3 text-xs font-semibold">{fmtMoney(r.highestBid)}</td><td className="px-4 py-3 text-xs font-semibold text-green-700">{fmtMoney(r.salePrice)}</td>
+            <td className="px-4 py-3 text-xs">{r.buyerName||'—'}</td>
+            <td className="px-4 py-3"><div className="flex gap-1.5 flex-wrap">
+              {(r.status==='Listed'||r.status==='Bid Open')&&<>
+                <button onClick={()=>{setBidModal(r);setBid('');}} className="bg-indigo-100 hover:bg-indigo-200 text-indigo-700 px-3 py-1 rounded-lg text-xs font-medium">Bid</button>
+                <button onClick={()=>{setSellModal(r);setSell({salePrice:String(r.highestBid||r.reservePrice),buyerName:'',buyerContact:''});}} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded-lg text-xs font-medium">Sell</button>
+                <button onClick={()=>unsold(r.id)} className="bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded-lg text-xs font-medium">Unsold</button>
+              </>}
+              {r.status==='Sold'&&<span className="text-xs text-green-600 font-medium">✓ Sold {fmtMoney(r.salePrice)}</span>}
+            </div></td></tr>))}</tbody></table>}
+    </div>
+    {modal&&<ModalShell title="List Vehicle for Auction" onClose={()=>setModal(false)}>
+      <form onSubmit={submit} className="space-y-4">
+        {err&&<div className="bg-red-50 border border-red-200 text-red-700 rounded-lg px-4 py-2 text-sm">{err}</div>}
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Vehicle *</label><select required className={INP} value={form.vehicleId} onChange={e=>setForm(f=>({...f,vehicleId:e.target.value}))}><option value="">Select Vehicle</option>{vehicles.map(v=><option key={v.id} value={v.id}>{v.registrationNumber} — {v.clientName}</option>)}</select></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Platform</label><select className={INP} value={form.platform} onChange={e=>setForm(f=>({...f,platform:e.target.value}))}>{['MSTC','C1 India','Internal'].map(p=><option key={p}>{p}</option>)}</select></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Reserve Price (₹) *</label><input type="number" min="1" required className={INP} value={form.reservePrice} onChange={e=>setForm(f=>({...f,reservePrice:e.target.value}))}/></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Auction Date</label><input type="date" className={INP} value={form.auctionDate} onChange={e=>setForm(f=>({...f,auctionDate:e.target.value}))}/></div>
+        <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={()=>setModal(false)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button><button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-2 rounded-xl text-sm">List</button></div>
+      </form></ModalShell>}
+    {bidModal&&<ModalShell title={`Record Bid — ${bidModal.registrationNumber}`} onClose={()=>setBidModal(null)}>
+      <form onSubmit={submitBid} className="space-y-4">
+        <p className="text-xs text-gray-500">Reserve: {fmtMoney(bidModal.reservePrice)} · Current highest: {fmtMoney(bidModal.highestBid)}</p>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Bid Amount (₹) *</label><input type="number" min="1" required className={INP} value={bid} onChange={e=>setBid(e.target.value)}/></div>
+        <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={()=>setBidModal(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button><button type="submit" className="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2 rounded-xl text-sm">Record Bid</button></div>
+      </form></ModalShell>}
+    {sellModal&&<ModalShell title={`Complete Sale — ${sellModal.registrationNumber}`} onClose={()=>setSellModal(null)}>
+      <form onSubmit={submitSell} className="space-y-4">
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Sale Price (₹) *</label><input type="number" min="1" required className={INP} value={sell.salePrice} onChange={e=>setSell(s=>({...s,salePrice:e.target.value}))}/></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Buyer Name *</label><input required className={INP} value={sell.buyerName} onChange={e=>setSell(s=>({...s,buyerName:e.target.value}))}/></div>
+        <div><label className="block text-xs font-semibold text-gray-600 mb-1">Buyer Contact</label><input className={INP} value={sell.buyerContact} onChange={e=>setSell(s=>({...s,buyerContact:e.target.value}))}/></div>
+        <div className="flex justify-end gap-3 pt-2"><button type="button" onClick={()=>setSellModal(null)} className="bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold px-5 py-2 rounded-xl text-sm">Cancel</button><button type="submit" className="bg-green-600 hover:bg-green-700 text-white font-semibold px-6 py-2 rounded-xl text-sm">Confirm Sale</button></div>
+      </form></ModalShell>}
+  </div>);
+};
+
+/* ── Audit Log (Module 10) ── */
+const Audit = () => {
+  const [rows,setRows]=useState([]); const [loading,setLoading]=useState(true);
+  useEffect(()=>{apiFetch('/api/audit?take=200').then(r=>r.ok?r.json():[]).then(setRows).catch(()=>{}).finally(()=>setLoading(false));},[]);
+  return (<div className="p-6">
+    <div className="mb-5"><h2 className="text-2xl font-bold text-gray-800">Audit Log</h2><p className="text-sm text-gray-500 mt-1">System activity trail</p></div>
+    <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+      {loading?<Spinner/>:<table className="w-full text-sm">
+        <thead className="bg-blue-600 text-white text-xs"><tr>{['#','Timestamp','User','Action','Entity','Details','IP'].map(h=><th key={h} className="px-4 py-3 text-left whitespace-nowrap font-semibold">{h}</th>)}</tr></thead>
+        <tbody>{rows.length===0?<tr><td colSpan={7} className="text-center py-16 text-gray-400">No audit entries.</td></tr>:rows.map((r,i)=>(
+          <tr key={r.id} className="border-b hover:bg-gray-50"><td className="px-4 py-3 text-gray-400 text-xs">{i+1}</td>
+            <td className="px-4 py-3 text-xs">{new Date(r.timestamp).toLocaleString('en-IN')}</td><td className="px-4 py-3 text-xs">#{r.userId}</td>
+            <td className="px-4 py-3 text-xs font-medium">{r.action}</td><td className="px-4 py-3 text-xs">{r.entityType}{r.entityId?` #${r.entityId}`:''}</td>
+            <td className="px-4 py-3 text-xs text-gray-500">{r.details||'—'}</td><td className="px-4 py-3 text-xs font-mono text-gray-400">{r.ipAddress||'—'}</td></tr>))}</tbody></table>}
+    </div>
+  </div>);
+};
+
 /* ── Exit Control (OTP) ── */
 const EXIT_STATUS_COLORS = { Pending:'bg-yellow-500', Approved:'bg-blue-600', Completed:'bg-green-600', Rejected:'bg-red-600', Cancelled:'bg-gray-400' };
 const EXIT_REASONS = ['Auction Sale','Borrower Release','Inter-Yard Transfer','Scrap Disposal'];
@@ -2101,8 +2311,12 @@ const App = () => {
       {page === 'inventory' && can(role,'inventory') && <Inventory onNav={onNav} user={user} />}
       {page === 'newentry'  && can(role,'newEntry')  && <NewEntry  onBack={()=>onNav('inventory')} />}
       {page === 'detail'    && can(role,'inventory')  && <VehicleDetail vehicleId={extra} user={user} onBack={()=>onNav('inventory')} />}
-      {page === 'projects'  && can(role,'projects')  && <Projects user={user} />}
-      {page === 'exits'     && can(role,'exits')     && <Exits user={user} />}
+      {page === 'projects'    && can(role,'projects')    && <Projects user={user} />}
+      {page === 'transfers'   && can(role,'transfers')   && <Transfers user={user} />}
+      {page === 'inspections' && can(role,'inspections') && <Inspections user={user} />}
+      {page === 'auctions'    && can(role,'auctions')    && <Auctions user={user} />}
+      {page === 'audit'       && can(role,'audit')       && <Audit />}
+      {page === 'exits'       && can(role,'exits')       && <Exits user={user} />}
       {page === 'masters'   && can(role,'masters')   && <Masters />}
       {page === 'users'     && can(role,'users')     && <UserManagement />}
       {/* Fallback for unauthorised page access */}
