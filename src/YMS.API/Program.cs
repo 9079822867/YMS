@@ -35,6 +35,20 @@ builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<IExitService, ExitService>();
 builder.Services.AddScoped<IExitRepository, ExitRepository>();
 
+// ── KwikCheck blueprint modules ──
+builder.Services.AddScoped<ITransferService, TransferService>();
+builder.Services.AddScoped<ITransferRepository, TransferRepository>();
+builder.Services.AddScoped<IInspectionService, InspectionService>();
+builder.Services.AddScoped<IInspectionRepository, InspectionRepository>();
+builder.Services.AddScoped<IAuctionService, AuctionService>();
+builder.Services.AddScoped<IAuctionRepository, AuctionRepository>();
+builder.Services.AddScoped<IDocumentService, DocumentService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IAuditService, AuditService>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.VehicleDocument>, Repository<YMS.Domain.Entities.VehicleDocument>>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Notification>, Repository<YMS.Domain.Entities.Notification>>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.AuditLog>, Repository<YMS.Domain.Entities.AuditLog>>();
+
 var jwtSecret = builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("JWT:Secret is not configured");
 

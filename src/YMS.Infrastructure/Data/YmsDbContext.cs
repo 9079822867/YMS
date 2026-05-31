@@ -16,6 +16,11 @@ public class YmsDbContext : DbContext
     public DbSet<MasterItem> MasterItems => Set<MasterItem>();
     public DbSet<Project> Projects => Set<Project>();
     public DbSet<VehicleExitRequest> VehicleExitRequests => Set<VehicleExitRequest>();
+    public DbSet<VehicleTransfer> VehicleTransfers => Set<VehicleTransfer>();
+    public DbSet<VehicleDocument> VehicleDocuments => Set<VehicleDocument>();
+    public DbSet<Inspection> Inspections => Set<Inspection>();
+    public DbSet<Auction> Auctions => Set<Auction>();
+    public DbSet<Notification> Notifications => Set<Notification>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -48,6 +53,44 @@ public class YmsDbContext : DbContext
             e.HasQueryFilter(x => !x.IsDeleted);
             e.HasOne(x => x.Vehicle).WithMany().HasForeignKey(x => x.VehicleId);
             e.HasIndex(x => x.Status);
+        });
+
+        modelBuilder.Entity<VehicleTransfer>(e =>
+        {
+            e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasOne(x => x.Vehicle).WithMany().HasForeignKey(x => x.VehicleId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.FromYard).WithMany().HasForeignKey(x => x.FromYardId).OnDelete(DeleteBehavior.Restrict);
+            e.HasOne(x => x.ToYard).WithMany().HasForeignKey(x => x.ToYardId).OnDelete(DeleteBehavior.Restrict);
+            e.HasIndex(x => x.Status);
+        });
+
+        modelBuilder.Entity<VehicleDocument>(e =>
+        {
+            e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasOne(x => x.Vehicle).WithMany().HasForeignKey(x => x.VehicleId);
+            e.HasIndex(x => new { x.VehicleId, x.DocumentType });
+        });
+
+        modelBuilder.Entity<Inspection>(e =>
+        {
+            e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasOne(x => x.Vehicle).WithMany().HasForeignKey(x => x.VehicleId);
+            e.Property(x => x.ValuationAmount).HasColumnType("decimal(12,2)");
+        });
+
+        modelBuilder.Entity<Auction>(e =>
+        {
+            e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasOne(x => x.Vehicle).WithMany().HasForeignKey(x => x.VehicleId);
+            e.Property(x => x.ReservePrice).HasColumnType("decimal(12,2)");
+            e.Property(x => x.HighestBid).HasColumnType("decimal(12,2)");
+            e.Property(x => x.SalePrice).HasColumnType("decimal(12,2)");
+        });
+
+        modelBuilder.Entity<Notification>(e =>
+        {
+            e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasIndex(x => x.UserId);
         });
 
         modelBuilder.Entity<Project>(e =>

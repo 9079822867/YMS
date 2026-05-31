@@ -10,5 +10,10 @@ public class Yard : BaseEntity
     public string State { get; set; } = string.Empty;
     public bool IsActive { get; set; } = true;
 
+    // Capacity & GPS (Module 2 — Yard Master)
+    public int Capacity { get; set; } = 0;            // 0 = unlimited
+    public double? Latitude { get; set; }
+    public double? Longitude { get; set; }
+
     public ICollection<Vehicle> Vehicles { get; set; } = new List<Vehicle>();
 }
