@@ -34,6 +34,7 @@ builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<IExitService, ExitService>();
 builder.Services.AddScoped<IExitRepository, ExitRepository>();
+builder.Services.AddScoped<IDashboardService, DashboardService>();
 
 // ── KwikCheck blueprint modules ──
 builder.Services.AddScoped<ITransferService, TransferService>();

@@ -175,50 +175,246 @@ const Login = ({ onLogin }) => {
 };
 
 /* ── Dashboard ── */
+const DONUT_COLORS = ['#3B82F6','#22C55E','#F59E0B','#8B5CF6','#9CA3AF','#EC4899','#14B8A6','#EF4444'];
+
+// KPI card with icon + optional delta
+const Kpi = ({ label, value, sub, icon, valueColor='text-gray-900', delta }) => (
+  <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+    <div className="flex items-start justify-between">
+      <div>
+        <p className="text-gray-500 text-xs">{label}</p>
+        <h2 className={`text-2xl font-bold mt-1 ${valueColor}`}>{value}</h2>
+      </div>
+      <div className="text-xl opacity-80">{icon}</div>
+    </div>
+    <p className="text-xs mt-2">
+      {delta !== undefined && delta !== null && (
+        <span className={delta >= 0 ? 'text-green-600' : 'text-red-600'}>
+          {delta >= 0 ? '▲' : '▼'} {Math.abs(delta)}%{' '}
+        </span>
+      )}
+      <span className="text-gray-400">{sub}</span>
+    </p>
+  </div>
+);
+
+// Pure-SVG line chart
+const LineChart = ({ points }) => {
+  if (!points?.length) return <div className="h-48 flex items-center justify-center text-gray-300 text-sm">No data</div>;
+  const w = 460, h = 180, pad = 28;
+  const vals = points.map(p => p.count);
+  const max = Math.max(...vals, 1), min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const x = i => pad + i * (w - pad * 2) / Math.max(1, points.length - 1);
+  const y = v => h - pad - (v - min) * (h - pad * 2) / range;
+  const line = points.map((p, i) => `${x(i)},${y(p.count)}`).join(' ');
+  const area = `${pad},${h-pad} ${line} ${x(points.length-1)},${h-pad}`;
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-48">
+      <polygon points={area} fill="#3B82F6" opacity="0.08" />
+      <polyline points={line} fill="none" stroke="#3B82F6" strokeWidth="2.5" />
+      {points.map((p, i) => <circle key={i} cx={x(i)} cy={y(p.count)} r="3.5" fill="#3B82F6" />)}
+      {points.map((p, i) => <text key={'t'+i} x={x(i)} y={h-8} fontSize="9" fill="#9CA3AF" textAnchor="middle">{p.date.split(' ')[1]}</text>)}
+    </svg>
+  );
+};
+
+// Grouped bar chart (entries vs exits)
+const BarChart = ({ points }) => {
+  if (!points?.length) return <div className="h-48 flex items-center justify-center text-gray-300 text-sm">No data</div>;
+  const max = Math.max(...points.flatMap(p => [p.entries, p.exits]), 1);
+  return (
+    <div className="h-48 flex items-end justify-between gap-2 px-1">
+      {points.map((p, i) => (
+        <div key={i} className="flex-1 flex flex-col items-center gap-1">
+          <div className="w-full flex items-end justify-center gap-0.5 h-40">
+            <div className="w-2.5 bg-green-500 rounded-t" style={{height:`${p.entries/max*100}%`}} title={`Entries: ${p.entries}`}></div>
+            <div className="w-2.5 bg-blue-500 rounded-t" style={{height:`${p.exits/max*100}%`}} title={`Exits: ${p.exits}`}></div>
+          </div>
+          <span className="text-[9px] text-gray-400">{p.date.split(' ')[1]}</span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// Donut chart (SVG stroke-dasharray)
+const Donut = ({ slices, total }) => {
+  const r = 60, c = 2 * Math.PI * r;
+  let offset = 0;
+  return (
+    <div className="flex items-center gap-6">
+      <svg viewBox="0 0 160 160" className="w-40 h-40 flex-shrink-0">
+        <g transform="rotate(-90 80 80)">
+          {slices.map((s, i) => {
+            const len = (s.percent / 100) * c;
+            const el = (
+              <circle key={i} cx="80" cy="80" r={r} fill="none"
+                stroke={DONUT_COLORS[i % DONUT_COLORS.length]} strokeWidth="20"
+                strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offset} />
+            );
+            offset += len;
+            return el;
+          })}
+        </g>
+        <text x="80" y="76" textAnchor="middle" fontSize="20" fontWeight="bold" fill="#111827">{total.toLocaleString('en-IN')}</text>
+        <text x="80" y="94" textAnchor="middle" fontSize="10" fill="#9CA3AF">Total</text>
+      </svg>
+      <div className="flex-1 space-y-1.5">
+        {slices.map((s, i) => (
+          <div key={i} className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full" style={{background:DONUT_COLORS[i % DONUT_COLORS.length]}}></span>
+              {s.type}
+            </span>
+            <span className="text-gray-500">{s.count.toLocaleString('en-IN')} ({s.percent}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const RUNNING_BADGE = { Running:'bg-green-100 text-green-700','Red/Idle':'bg-red-100 text-red-700' };
+const occBar = pct => pct >= 90 ? 'bg-red-500' : pct >= 75 ? 'bg-amber-500' : 'bg-green-500';
+
 const Dashboard = ({ onNav }) => {
-  const [stats, setStats] = useState(null);
+  const [d, setD] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    apiFetch('/api/dashboard/stats')
+    apiFetch('/api/dashboard/overview')
       .then(r => r.ok ? r.json() : null)
-      .then(d => setStats(d))
+      .then(setD)
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
-  const Card = ({ label, value, color='text-gray-800' }) => (
-    <div className="bg-white rounded-2xl shadow-md p-5">
-      <p className="text-gray-500 text-sm">{label}</p>
-      <h2 className={`text-3xl font-bold mt-1 ${color}`}>
-        {value !== undefined && value !== null ? Number(value).toLocaleString('en-IN') : '—'}
-      </h2>
-    </div>
-  );
+  if (loading) return <div className="p-6"><Spinner /></div>;
+  if (!d) return <div className="p-6 text-gray-400">Unable to load dashboard.</div>;
+
+  const n = v => Number(v ?? 0).toLocaleString('en-IN');
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+    <div className="p-6 space-y-5">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-gray-900">Dashboard</h2>
+          <p className="text-sm text-gray-500">Yard Management System for Repossessed Vehicles</p>
+        </div>
         <button onClick={()=>onNav('inventory')} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm">
           View Inventory →
         </button>
       </div>
-      {loading ? <Spinner /> : (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-            <Card label="Total Vehicles"   value={stats?.totalVehicles} />
-            <Card label="Running"          value={stats?.runningVehicles} color="text-green-600" />
-            <Card label="Red / Idle"       value={stats?.idleVehicles}   color="text-red-600" />
-            <Card label="Pending RC"       value={stats?.pendingRc}      color="text-yellow-600" />
+
+      {/* KPI row 1 */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Kpi label="Total Inventory" value={n(d.totalInventory)} sub="Vehicles in yard" icon="🚗" />
+        <Kpi label="Entry This Month" value={n(d.entryThisMonth)} sub="vs last month" delta={d.entryMonthDelta} valueColor="text-green-600" icon="📈" />
+        <Kpi label="Entry Today" value={n(d.entryToday)} sub="Vehicles entered" valueColor="text-red-600" icon="↘️" />
+        <Kpi label="Exit This Month" value={n(d.exitThisMonth)} sub="vs last month" delta={d.exitMonthDelta} valueColor="text-blue-600" icon="➡️" />
+        <Kpi label="Exit Today" value={n(d.exitToday)} sub="Vehicles exited" valueColor="text-amber-600" icon="↗️" />
+        <Kpi label="Total Exited (All Time)" value={n(d.totalExitedAllTime)} sub="Total vehicles exited" valueColor="text-amber-600" icon="📊" />
+      </div>
+
+      {/* KPI row 2 */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Kpi label="> 30 Days Stock" value={n(d.over30DaysStock)} sub="Needs attention" valueColor="text-gray-900" icon="⚠️" />
+        <Kpi label="Legal Hold Stock" value={n(d.legalHoldStock)} sub="Under legal process" icon="⚖️" />
+        <Kpi label="Upcoming Auction" value={n(d.upcomingAuction)} sub="This month" valueColor="text-green-600" icon="🔨" />
+        <Kpi label="Auction Completed" value={n(d.auctionCompleted)} sub="This month" icon="🏆" />
+        <Kpi label="Average Holding Days" value={d.averageHoldingDays} sub="Days" icon="⏱️" />
+        <Kpi label="Occupancy" value={`${d.occupancyPercent}%`} sub="Yard Capacity" valueColor="text-blue-600" icon="🥧" />
+      </div>
+
+      {/* Charts */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <h3 className="font-semibold text-gray-700 mb-3">Inventory Trend <span className="text-xs text-gray-400">· Last 7 Days</span></h3>
+          <LineChart points={d.inventoryTrend} />
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <h3 className="font-semibold text-gray-700 mb-1">Entries vs Exits <span className="text-xs text-gray-400">· Last 7 Days</span></h3>
+          <div className="flex gap-4 text-xs text-gray-500 mb-2">
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>Entries</span>
+            <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>Exits</span>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            <Card label="Submitted Reports"      value={stats?.submittedReports} color="text-blue-600" />
-            <Card label="Active Yards"           value={stats?.activeYards} />
-            <Card label="Total Parking (₹)"      value={stats?.totalParkingCharges} />
+          <BarChart points={d.entriesExits} />
+        </div>
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+          <h3 className="font-semibold text-gray-700 mb-3">Inventory by Vehicle Type</h3>
+          {d.vehicleTypeDistribution?.length
+            ? <Donut slices={d.vehicleTypeDistribution} total={d.totalInventory} />
+            : <div className="h-40 flex items-center justify-center text-gray-300 text-sm">No data</div>}
+        </div>
+      </div>
+
+      {/* Tables */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Recently Added */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b">
+            <h3 className="font-semibold text-gray-700">Recently Added Vehicles</h3>
+            <button onClick={()=>onNav('inventory')} className="text-blue-600 text-sm font-medium hover:underline">View All →</button>
           </div>
-        </>
-      )}
+          <table className="w-full text-sm">
+            <thead className="text-xs text-gray-500 border-b">
+              <tr>{['Reg. Number','Vehicle','Category','Entry Date','Yard','Status'].map(h=><th key={h} className="px-4 py-2 text-left font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {d.recentVehicles?.length ? d.recentVehicles.map((v,i)=>(
+                <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-2.5 font-mono text-xs">{v.registrationNumber}</td>
+                  <td className="px-4 py-2.5">{v.vehicle||'—'}</td>
+                  <td className="px-4 py-2.5 text-gray-500">{v.category}</td>
+                  <td className="px-4 py-2.5 text-gray-500 text-xs">{new Date(v.entryDate).toLocaleDateString('en-IN',{day:'numeric',month:'short',year:'numeric'})}</td>
+                  <td className="px-4 py-2.5">{v.yard}</td>
+                  <td className="px-4 py-2.5"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${RUNNING_BADGE[v.status]||'bg-gray-100 text-gray-600'}`}>{v.status}</span></td>
+                </tr>
+              )) : <tr><td colSpan={6} className="text-center py-10 text-gray-300">No vehicles yet</td></tr>}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Yard Wise */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="flex items-center justify-between px-5 py-3 border-b">
+            <h3 className="font-semibold text-gray-700">Yard Wise Inventory</h3>
+            <button onClick={()=>onNav('masters')} className="text-blue-600 text-sm font-medium hover:underline">View All →</button>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="text-xs text-gray-500 border-b">
+              <tr>{['Yard','Total Vehicles','Occupancy %','> 30 Days Stock'].map(h=><th key={h} className="px-4 py-2 text-left font-medium">{h}</th>)}</tr>
+            </thead>
+            <tbody>
+              {d.yardWiseInventory?.length ? d.yardWiseInventory.map((y,i)=>(
+                <tr key={i} className="border-b last:border-0 hover:bg-gray-50">
+                  <td className="px-4 py-2.5">{y.yard}</td>
+                  <td className="px-4 py-2.5 font-semibold">{n(y.total)}</td>
+                  <td className="px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 max-w-[120px]">
+                        <div className={`${occBar(y.occupancyPercent)} h-1.5 rounded-full`} style={{width:`${Math.min(100,y.occupancyPercent)}%`}}></div>
+                      </div>
+                      <span className="text-xs text-gray-600">{y.occupancyPercent}%</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-2.5">{y.over30Days}</td>
+                </tr>
+              )) : <tr><td colSpan={4} className="text-center py-10 text-gray-300">No yards yet</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Footer strip */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 px-6 py-4 flex flex-wrap items-center justify-between gap-4 text-sm">
+        <span className="flex items-center gap-2 text-gray-600">🏭 <strong>{d.totalYards}</strong> Total Yards</span>
+        <span className="flex items-center gap-2 text-gray-600">👥 <strong>{d.activeUsers}</strong> Active Users</span>
+        <span className="flex items-center gap-2 text-gray-600"><span className="w-2.5 h-2.5 rounded-full bg-green-500"></span> System Status: <strong className="text-green-600">Operational</strong></span>
+        <span className="flex items-center gap-2 text-gray-400 text-xs">Last Updated: {new Date().toLocaleString('en-IN')}</span>
+      </div>
     </div>
   );
 };

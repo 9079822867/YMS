@@ -43,6 +43,7 @@ public class Vehicle : BaseEntity
 
     public DateTime EntryDate { get; set; } = DateTime.UtcNow;
     public DateTime? ExitDate { get; set; }
+    public bool IsLegalHold { get; set; } = false;
 
     public Client Client { get; set; } = null!;
     public Yard Yard { get; set; } = null!;

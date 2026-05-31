@@ -22,4 +22,11 @@ public class DashboardController : ControllerBase
         var stats = await _inventoryService.GetDashboardStatsAsync();
         return Ok(stats);
     }
+
+    [HttpGet("overview")]
+    public async Task<IActionResult> GetOverview([FromServices] IDashboardService dashboard)
+    {
+        var overview = await dashboard.GetOverviewAsync();
+        return Ok(overview);
+    }
 }
