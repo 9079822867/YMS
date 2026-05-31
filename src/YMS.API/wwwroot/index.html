@@ -283,6 +283,24 @@ const Inventory = ({ onNav, user }) => {
     finally { setExporting(false); }
   };
 
+  /* ── Sample Template ── */
+  const onDownloadSample = async () => {
+    try {
+      const token = localStorage.getItem('yms_token');
+      const res = await fetch('/api/inventory/sample-template', {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (!res.ok) { alert('Could not download template'); return; }
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = 'YMS_Import_Template.xlsx';
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch(e) { alert('Download error: ' + e.message); }
+  };
+
   /* ── Import ── */
   const onImportClick = () => importRef.current?.click();
   const onFileSelected = async (e) => {
@@ -475,9 +493,9 @@ const Inventory = ({ onNav, user }) => {
               <button onClick={onExport} disabled={exporting} className="bg-green-600 hover:bg-green-700 disabled:opacity-60 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
                 {exporting ? 'Exporting…' : '↓ Export Excel'}
               </button>
-              <a href="/api/inventory/sample-template" download className="bg-gray-500 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
+              <button onClick={onDownloadSample} className="bg-gray-500 hover:bg-gray-600 text-white text-sm font-semibold px-4 py-1.5 rounded-xl transition-colors">
                 📋 Sample
-              </a>
+              </button>
               <input ref={importRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={onFileSelected} />
             </div>
           </div>

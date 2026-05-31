@@ -37,6 +37,7 @@ public class InventoryController : ControllerBase
     }
 
     [HttpGet("sample-template")]
+    [AllowAnonymous]   // public file — no token required
     public IActionResult DownloadSampleTemplate()
     {
         const string fileName = "YMS_Import_Template.xlsx";
