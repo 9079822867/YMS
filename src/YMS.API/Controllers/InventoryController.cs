@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using YMS.Application.DTOs;
 using YMS.Application.Interfaces;
 using YMS.Infrastructure.Services;
+using Microsoft.AspNetCore.Hosting;
 
 namespace YMS.API.Controllers;
 
@@ -13,11 +14,16 @@ public class InventoryController : ControllerBase
 {
     private readonly IInventoryService _inventoryService;
     private readonly IExcelService _excelService;
+    private readonly IWebHostEnvironment _env;
 
-    public InventoryController(IInventoryService inventoryService, IExcelService excelService)
+    public InventoryController(
+        IInventoryService inventoryService,
+        IExcelService excelService,
+        IWebHostEnvironment env)
     {
         _inventoryService = inventoryService;
         _excelService = excelService;
+        _env = env;
     }
 
     // ── Excel endpoints ──────────────────────────────────────────────────────
@@ -33,9 +39,20 @@ public class InventoryController : ControllerBase
     [HttpGet("sample-template")]
     public IActionResult DownloadSampleTemplate()
     {
+        const string fileName = "YMS_Import_Template.xlsx";
+        const string mimeType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+        // Try serving the pre-built physical file first (fastest, no generation overhead)
+        var physicalPath = Path.Combine(_env.ContentRootPath, "templates", fileName);
+        if (System.IO.File.Exists(physicalPath))
+        {
+            var stream = System.IO.File.OpenRead(physicalPath);
+            return File(stream, mimeType, fileName);
+        }
+
+        // Fallback: generate dynamically (covers local dev before publish)
         var bytes = _excelService.GenerateSampleTemplate();
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    "YMS_Import_Template.xlsx");
+        return File(bytes, mimeType, fileName);
     }
 
     [HttpPost("import")]

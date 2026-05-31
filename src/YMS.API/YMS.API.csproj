@@ -22,4 +22,12 @@
     <ProjectReference Include="..\YMS.Infrastructure\YMS.Infrastructure.csproj" />
   </ItemGroup>
 
+  <!-- Copy templates folder alongside the published output -->
+  <ItemGroup>
+    <None Include="..\..\templates\*.xlsx"
+          CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="Always"
+          Link="templates\%(Filename)%(Extension)" />
+  </ItemGroup>
+
 </Project>
