@@ -30,6 +30,8 @@ builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Vehicle>, Repository<
 builder.Services.AddScoped<IRepository<YMS.Domain.Entities.MasterItem>, Repository<YMS.Domain.Entities.MasterItem>>();
 builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Client>, Repository<YMS.Domain.Entities.Client>>();
 builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Yard>, Repository<YMS.Domain.Entities.Yard>>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.State>, Repository<YMS.Domain.Entities.State>>();
+builder.Services.AddScoped<IRepository<YMS.Domain.Entities.City>, Repository<YMS.Domain.Entities.City>>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
 builder.Services.AddScoped<IExitService, ExitService>();

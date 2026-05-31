@@ -12,11 +12,13 @@ public class MasterServiceTests
     private readonly Mock<IRepository<MasterItem>> _itemMock   = new();
     private readonly Mock<IRepository<Client>>     _clientMock = new();
     private readonly Mock<IRepository<Yard>>       _yardMock   = new();
+    private readonly Mock<IRepository<State>>      _stateMock  = new();
+    private readonly Mock<IRepository<City>>       _cityMock   = new();
     private readonly MasterService _service;
 
     public MasterServiceTests()
     {
-        _service = new MasterService(_itemMock.Object, _clientMock.Object, _yardMock.Object);
+        _service = new MasterService(_itemMock.Object, _clientMock.Object, _yardMock.Object, _stateMock.Object, _cityMock.Object);
     }
 
     // ── Generic items ─────────────────────────────────────────
@@ -201,5 +203,81 @@ public class MasterServiceTests
 
         Assert.True(await _service.DeleteYardAsync(2));
         Assert.True(yard.IsDeleted);
+    }
+
+    // ── States & Cities ───────────────────────────────────────
+    [Fact]
+    public async Task GetStates_ReturnsActiveOrderedByName()
+    {
+        _stateMock.Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<State, bool>>>()))
+            .ReturnsAsync(new List<State>
+            {
+                new() { Id=2, Code="MH", Name="Maharashtra", IsActive=true },
+                new() { Id=1, Code="DL", Name="Delhi", IsActive=true },
+            });
+        var result = (await _service.GetStatesAsync()).ToList();
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Delhi", result[0].Name);     // alphabetical
+        Assert.Equal("MH", result[1].Code);
+    }
+
+    [Fact]
+    public async Task GetCities_ByStateId_FiltersAndOrders()
+    {
+        _cityMock.Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<City, bool>>>()))
+            .ReturnsAsync(new List<City>
+            {
+                new() { Id=2, StateId=14, Name="Pune", IsActive=true },
+                new() { Id=1, StateId=14, Name="Mumbai", IsActive=true },
+            });
+        var result = (await _service.GetCitiesAsync(null, 14)).ToList();
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Mumbai", result[0].Name);     // alphabetical
+    }
+
+    [Fact]
+    public async Task GetCities_ByStateCode_ResolvesToId()
+    {
+        _stateMock.Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<State, bool>>>()))
+            .ReturnsAsync(new List<State> { new() { Id=14, Code="MH", Name="Maharashtra" } });
+        _cityMock.Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<City, bool>>>()))
+            .ReturnsAsync(new List<City> { new() { Id=1, StateId=14, Name="Mumbai", IsActive=true } });
+        var result = (await _service.GetCitiesAsync("MH", null)).ToList();
+        Assert.Single(result);
+        Assert.Equal("Mumbai", result[0].Name);
+    }
+
+    [Fact]
+    public async Task AddCity_Valid_Succeeds()
+    {
+        _stateMock.Setup(r => r.GetByIdAsync(14)).ReturnsAsync(new State { Id=14, Code="MH", Name="Maharashtra" });
+        _cityMock.Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<City, bool>>>()))
+            .ReturnsAsync(new List<City>());
+        _cityMock.Setup(r => r.AddAsync(It.IsAny<City>())).Returns(Task.CompletedTask);
+        _cityMock.Setup(r => r.SaveChangesAsync()).ReturnsAsync(1);
+
+        var (ok, err, city) = await _service.AddCityAsync(new SaveCityRequest { StateId = 14, Name = "Satara" });
+        Assert.True(ok);
+        Assert.Equal("Satara", city!.Name);
+    }
+
+    [Fact]
+    public async Task AddCity_InvalidState_Fails()
+    {
+        _stateMock.Setup(r => r.GetByIdAsync(99)).ReturnsAsync((State?)null);
+        var (ok, err, _) = await _service.AddCityAsync(new SaveCityRequest { StateId = 99, Name = "X" });
+        Assert.False(ok);
+        Assert.Contains("State not found", err);
+    }
+
+    [Fact]
+    public async Task AddCity_Duplicate_Fails()
+    {
+        _stateMock.Setup(r => r.GetByIdAsync(14)).ReturnsAsync(new State { Id=14, Name="Maharashtra" });
+        _cityMock.Setup(r => r.FindAsync(It.IsAny<System.Linq.Expressions.Expression<Func<City, bool>>>()))
+            .ReturnsAsync(new List<City> { new() { Id=1, StateId=14, Name="Mumbai" } });
+        var (ok, err, _) = await _service.AddCityAsync(new SaveCityRequest { StateId = 14, Name = "Mumbai" });
+        Assert.False(ok);
+        Assert.Contains("already exists", err);
     }
 }

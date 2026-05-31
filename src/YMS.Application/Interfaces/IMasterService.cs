@@ -17,6 +17,12 @@ public interface IMasterService
     Task<(bool Success, string Error)> UpdateClientAsync(int id, SaveClientRequest request);
     Task<bool> DeleteClientAsync(int id);
 
+    // ── States & Cities ──
+    Task<IEnumerable<StateDto>> GetStatesAsync();
+    Task<IEnumerable<CityDto>> GetCitiesAsync(string? stateCode, int? stateId);
+    Task<(bool Success, string Error, CityDto? City)> AddCityAsync(SaveCityRequest request);
+    Task<bool> DeleteCityAsync(int id);
+
     // ── Yards ──
     Task<IEnumerable<YardDto>> GetYardsAsync();
     Task<YardDto?> GetYardByIdAsync(int id);

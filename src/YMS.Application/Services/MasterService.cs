@@ -10,15 +10,70 @@ public class MasterService : IMasterService
     private readonly IRepository<MasterItem> _itemRepo;
     private readonly IRepository<Client>     _clientRepo;
     private readonly IRepository<Yard>       _yardRepo;
+    private readonly IRepository<State>      _stateRepo;
+    private readonly IRepository<City>       _cityRepo;
 
     public MasterService(
         IRepository<MasterItem> itemRepo,
         IRepository<Client>     clientRepo,
-        IRepository<Yard>       yardRepo)
+        IRepository<Yard>       yardRepo,
+        IRepository<State>      stateRepo,
+        IRepository<City>       cityRepo)
     {
         _itemRepo   = itemRepo;
         _clientRepo = clientRepo;
         _yardRepo   = yardRepo;
+        _stateRepo  = stateRepo;
+        _cityRepo   = cityRepo;
+    }
+
+    // ── States & Cities ──────────────────────────────────────────
+    public async Task<IEnumerable<StateDto>> GetStatesAsync()
+    {
+        var states = await _stateRepo.FindAsync(s => s.IsActive);
+        return states.OrderBy(s => s.Name)
+                     .Select(s => new StateDto { Id = s.Id, Code = s.Code, Name = s.Name });
+    }
+
+    public async Task<IEnumerable<CityDto>> GetCitiesAsync(string? stateCode, int? stateId)
+    {
+        int? sid = stateId;
+        if (sid is null && !string.IsNullOrWhiteSpace(stateCode))
+        {
+            var st = (await _stateRepo.FindAsync(s => s.Code == stateCode)).FirstOrDefault();
+            sid = st?.Id;
+        }
+
+        var cities = sid.HasValue
+            ? await _cityRepo.FindAsync(c => c.IsActive && c.StateId == sid.Value)
+            : await _cityRepo.FindAsync(c => c.IsActive);
+
+        return cities.OrderBy(c => c.Name)
+                     .Select(c => new CityDto { Id = c.Id, StateId = c.StateId, Name = c.Name });
+    }
+
+    public async Task<(bool Success, string Error, CityDto? City)> AddCityAsync(SaveCityRequest request)
+    {
+        var state = await _stateRepo.GetByIdAsync(request.StateId);
+        if (state is null) return (false, "State not found", null);
+
+        var dup = await _cityRepo.FindAsync(c => c.StateId == request.StateId && c.Name == request.Name.Trim());
+        if (dup.Any()) return (false, "City already exists in this state", null);
+
+        var city = new City { StateId = request.StateId, Name = request.Name.Trim(), IsActive = true };
+        await _cityRepo.AddAsync(city);
+        await _cityRepo.SaveChangesAsync();
+        return (true, string.Empty, new CityDto { Id = city.Id, StateId = city.StateId, Name = city.Name });
+    }
+
+    public async Task<bool> DeleteCityAsync(int id)
+    {
+        var city = await _cityRepo.GetByIdAsync(id);
+        if (city is null) return false;
+        city.IsActive = false;
+        _cityRepo.Update(city);
+        await _cityRepo.SaveChangesAsync();
+        return true;
     }
 
     // ── Generic items ────────────────────────────────────────────

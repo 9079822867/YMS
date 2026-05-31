@@ -21,6 +21,28 @@ public class SaveMasterItemRequest
     public bool IsActive { get; set; } = true;
 }
 
+/* ── State & City master ── */
+
+public class StateDto
+{
+    public int Id { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+}
+
+public class CityDto
+{
+    public int Id { get; set; }
+    public int StateId { get; set; }
+    public string Name { get; set; } = string.Empty;
+}
+
+public class SaveCityRequest
+{
+    [Required] public int StateId { get; set; }
+    [Required] public string Name { get; set; } = string.Empty;
+}
+
 /* ── Client master ── */
 
 public class ClientDto

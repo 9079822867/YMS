@@ -21,6 +21,8 @@ public class YmsDbContext : DbContext
     public DbSet<Inspection> Inspections => Set<Inspection>();
     public DbSet<Auction> Auctions => Set<Auction>();
     public DbSet<Notification> Notifications => Set<Notification>();
+    public DbSet<State> States => Set<State>();
+    public DbSet<City> Cities => Set<City>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -92,6 +94,19 @@ public class YmsDbContext : DbContext
             e.HasQueryFilter(x => !x.IsDeleted);
             e.HasIndex(x => x.UserId);
         });
+
+        modelBuilder.Entity<State>(e =>
+        {
+            e.HasIndex(x => x.Code).IsUnique();
+            e.HasMany(x => x.Cities).WithOne(c => c.State).HasForeignKey(c => c.StateId);
+        });
+        modelBuilder.Entity<City>(e =>
+        {
+            e.HasIndex(x => new { x.StateId, x.Name });
+        });
+
+        modelBuilder.Entity<State>().HasData(GeoSeedData.States());
+        modelBuilder.Entity<City>().HasData(GeoSeedData.Cities());
 
         modelBuilder.Entity<Project>(e =>
         {

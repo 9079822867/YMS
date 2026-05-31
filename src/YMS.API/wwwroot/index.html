@@ -434,6 +434,7 @@ const Inventory = ({ onNav, user }) => {
   const [pageSize, setPageSize] = useState(25);
   const [loading, setLoading] = useState(false);
   const [masters, setMasters] = useState({ states:[], vehicleTypes:[], runningStatuses:[] });
+  const [cities, setCities] = useState([]);
 
   useEffect(() => {
     Promise.all([
@@ -444,6 +445,14 @@ const Inventory = ({ onNav, user }) => {
       setMasters({ states, vehicleTypes, runningStatuses })
     ).catch(()=>{});
   }, []);
+
+  // Cascading: load cities when the selected state changes (filter stores state NAME)
+  useEffect(() => {
+    const st = masters.states.find(s => s.name === filters.state);
+    if (!st) { setCities([]); return; }
+    apiFetch(`/api/masters/cities?stateId=${st.id}`)
+      .then(r=>r.ok?r.json():[]).then(setCities).catch(()=>setCities([]));
+  }, [filters.state, masters.states]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -610,7 +619,6 @@ const Inventory = ({ onNav, user }) => {
             {l:'Chassis No',k:'chassisNumber',ph:'Chassis number'},
             {l:'Engine No',k:'engineNumber',ph:'Engine number'},
             {l:'Yard Name',k:'yardName',ph:'Yard name'},
-            {l:'Yard City',k:'yardCity',ph:'City'},
           ].map(({l,k,ph})=>(
             <div key={k}>
               <label className="block font-semibold text-gray-600 mb-1">{l}</label>
@@ -620,9 +628,16 @@ const Inventory = ({ onNav, user }) => {
 
           <div>
             <label className="block font-semibold text-gray-600 mb-1">State</label>
-            <select className={inp} value={filters.state} onChange={e=>set('state',e.target.value)}>
+            <select className={inp} value={filters.state} onChange={e=>{set('state',e.target.value);set('yardCity','');}}>
               <option value="">All States</option>
-              {masters.states.map(s=><option key={s}>{s}</option>)}
+              {masters.states.map(s=><option key={s.id} value={s.name}>{s.name} ({s.code})</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-gray-600 mb-1">Yard City</label>
+            <select className={inp} value={filters.yardCity} onChange={e=>set('yardCity',e.target.value)} disabled={!filters.state}>
+              <option value="">{filters.state ? 'All Cities' : 'Select state first'}</option>
+              {cities.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
             </select>
           </div>
           <div>
@@ -2027,7 +2042,8 @@ const Projects = ({ user }) => {
 const MASTER_TABS = [
   { key:'clients',    label:'Clients'       },
   { key:'yards',      label:'Yards'         },
-  { key:'State',      label:'States'        },
+  { key:'states',     label:'States'        },
+  { key:'cities',     label:'Cities'        },
   { key:'VehicleType',label:'Vehicle Types' },
   { key:'RunningStatus', label:'Running Statuses' },
   { key:'KeyStatus',  label:'Key Statuses'  },
@@ -2046,17 +2062,28 @@ const Masters = () => {
   const [err, setErr]     = useState('');
   const [delId, setDelId] = useState(null);
   const [toast, setToast] = useState('');
+  const [states, setStates] = useState([]);     // {id,code,name}
+  const [formCities, setFormCities] = useState([]); // cities for the state chosen in the form
 
-  const isItemTab    = !['clients','yards'].includes(tab);
+  const isItemTab    = !['clients','yards','states','cities'].includes(tab);
   const isClientTab  = tab === 'clients';
   const isYardTab    = tab === 'yards';
+  const isStateTab   = tab === 'states';
+  const isCityTab    = tab === 'cities';
+  const readOnly     = isStateTab;   // states are fixed master data
 
   const showToast = msg => { setToast(msg); setTimeout(()=>setToast(''),3000); };
+
+  // States list (for dropdowns) loaded once
+  useEffect(() => { apiFetch('/api/masters/states').then(r=>r.json()).then(setStates).catch(()=>{}); }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const url = isItemTab ? `/api/masters/items/${tab}` : `/api/masters/${tab}`;
+      const url = isItemTab ? `/api/masters/items/${tab}`
+                : isStateTab ? '/api/masters/states'
+                : isCityTab  ? '/api/masters/cities'
+                : `/api/masters/${tab}`;
       const res = await apiFetch(url);
       if (res.ok) setRows(await res.json());
     } catch {}
@@ -2065,9 +2092,19 @@ const Masters = () => {
 
   useEffect(() => { setRows([]); load(); }, [load]);
 
+  // Cascading cities for the open form (yard or city tab)
+  useEffect(() => {
+    const sid = isCityTab ? form.stateId
+              : isYardTab ? (states.find(s=>s.name===form.state)?.id)
+              : null;
+    if (!sid) { setFormCities([]); return; }
+    apiFetch(`/api/masters/cities?stateId=${sid}`).then(r=>r.ok?r.json():[]).then(setFormCities).catch(()=>setFormCities([]));
+  }, [form.stateId, form.state, isCityTab, isYardTab, states]);
+
   const blankForm = () => {
     if (isClientTab) return { name:'', contactPerson:'', phone:'', email:'', isActive:true };
     if (isYardTab)   return { name:'', address:'', managerName:'', contactNumber:'', city:'', state:'', isActive:true };
+    if (isCityTab)   return { stateId:'', name:'' };
     return { category: tab, name:'', sortOrder:0, isActive:true };
   };
 
@@ -2083,14 +2120,17 @@ const Masters = () => {
     e.preventDefault(); setErr(''); setSaving(true);
     try {
       let url, method;
-      if (modal.mode === 'create') {
+      if (isCityTab) {
+        url = '/api/masters/cities'; method = 'POST';   // cities are add-only
+      } else if (modal.mode === 'create') {
         url = isItemTab ? '/api/masters/items' : `/api/masters/${tab}`;
         method = 'POST';
       } else {
         url = isItemTab ? `/api/masters/items/${modal.row.id}` : `/api/masters/${tab}/${modal.row.id}`;
         method = 'PUT';
       }
-      const res = await apiFetch(url, { method, body: JSON.stringify(form) });
+      const body = isCityTab ? { stateId: Number(form.stateId), name: form.name } : form;
+      const res = await apiFetch(url, { method, body: JSON.stringify(body) });
       if (!res.ok) { const e = await res.json(); setErr(e.message||'Error'); return; }
       setModal(null);
       showToast(modal.mode === 'create' ? 'Created!' : 'Updated!');
@@ -2120,12 +2160,28 @@ const Masters = () => {
     </>);
     if (isYardTab) return (<>
       <div><label className="block text-xs font-semibold text-gray-600 mb-1">Yard Name *</label><input required className={inp} value={form.name||''} onChange={e=>setF('name',e.target.value)} /></div>
-      <div><label className="block text-xs font-semibold text-gray-600 mb-1">City *</label><input required className={inp} value={form.city||''} onChange={e=>setF('city',e.target.value)} /></div>
-      <div><label className="block text-xs font-semibold text-gray-600 mb-1">State *</label><input required className={inp} value={form.state||''} onChange={e=>setF('state',e.target.value)} /></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">State *</label>
+        <select required className={inp} value={form.state||''} onChange={e=>setForm(f=>({...f,state:e.target.value,city:''}))}>
+          <option value="">Select State</option>
+          {states.map(s=><option key={s.id} value={s.name}>{s.name} ({s.code})</option>)}
+        </select></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">City *</label>
+        <select required className={inp} value={form.city||''} onChange={e=>setF('city',e.target.value)} disabled={!form.state}>
+          <option value="">{form.state ? 'Select City' : 'Select state first'}</option>
+          {formCities.map(c=><option key={c.id} value={c.name}>{c.name}</option>)}
+        </select></div>
       <div><label className="block text-xs font-semibold text-gray-600 mb-1">Address</label><input className={inp} value={form.address||''} onChange={e=>setF('address',e.target.value)} /></div>
       <div><label className="block text-xs font-semibold text-gray-600 mb-1">Manager Name</label><input className={inp} value={form.managerName||''} onChange={e=>setF('managerName',e.target.value)} /></div>
       <div><label className="block text-xs font-semibold text-gray-600 mb-1">Contact Number</label><input className={inp} value={form.contactNumber||''} onChange={e=>setF('contactNumber',e.target.value)} /></div>
       {modal?.mode==='edit' && <div className="flex items-center gap-2"><input type="checkbox" checked={!!form.isActive} onChange={e=>setF('isActive',e.target.checked)} className="w-4 h-4 accent-blue-600" /><label className="text-sm text-gray-700">Active</label></div>}
+    </>);
+    if (isCityTab) return (<>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">State *</label>
+        <select required className={inp} value={form.stateId||''} onChange={e=>setF('stateId',e.target.value)}>
+          <option value="">Select State</option>
+          {states.map(s=><option key={s.id} value={s.id}>{s.name} ({s.code})</option>)}
+        </select></div>
+      <div><label className="block text-xs font-semibold text-gray-600 mb-1">City Name *</label><input required className={inp} value={form.name||''} onChange={e=>setF('name',e.target.value)} placeholder="e.g. Pune" /></div>
     </>);
     return (<>
       <div><label className="block text-xs font-semibold text-gray-600 mb-1">Name *</label><input required className={inp} value={form.name||''} onChange={e=>setF('name',e.target.value)} placeholder="Enter value" /></div>
@@ -2134,13 +2190,18 @@ const Masters = () => {
     </>);
   };
 
+  const stateName = id => states.find(s=>s.id===id)?.name || '—';
   const renderRow = r => {
     if (isClientTab) return [r.name, r.contactPerson||'—', r.phone||'—', r.email||'—'];
     if (isYardTab)   return [r.name, r.city, r.state, r.managerName||'—', r.contactNumber||'—'];
+    if (isStateTab)  return [r.code, r.name];
+    if (isCityTab)   return [r.name, stateName(r.stateId)];
     return [r.name, `Sort: ${r.sortOrder}`];
   };
   const headers = isClientTab ? ['Name','Contact Person','Phone','Email'] :
-                  isYardTab   ? ['Name','City','State','Manager','Phone'] : ['Name','Order'];
+                  isYardTab   ? ['Name','City','State','Manager','Phone'] :
+                  isStateTab  ? ['Code','State Name'] :
+                  isCityTab   ? ['City','State'] : ['Name','Order'];
 
   return (
     <div className="p-6">
@@ -2151,9 +2212,11 @@ const Masters = () => {
           <h2 className="text-2xl font-bold text-gray-800">Master Management</h2>
           <p className="text-sm text-gray-500 mt-1">Manage clients, yards and lookup values</p>
         </div>
-        <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">
-          + Add {MASTER_TABS.find(t=>t.key===tab)?.label.replace(/s$/,'')}
-        </button>
+        {!readOnly && (
+          <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-5 py-2 rounded-xl text-sm">
+            + Add {isCityTab ? 'City' : MASTER_TABS.find(t=>t.key===tab)?.label.replace(/s$/,'')}
+          </button>
+        )}
       </div>
 
       {/* Tabs */}
@@ -2174,8 +2237,8 @@ const Masters = () => {
               <tr>
                 <th className="px-4 py-3 text-left">#</th>
                 {headers.map(h=><th key={h} className="px-4 py-3 text-left whitespace-nowrap">{h}</th>)}
-                <th className="px-4 py-3 text-left">Status</th>
-                <th className="px-4 py-3 text-left">Actions</th>
+                {!isStateTab && !isCityTab && <th className="px-4 py-3 text-left">Status</th>}
+                {!readOnly && <th className="px-4 py-3 text-left">Actions</th>}
               </tr>
             </thead>
             <tbody>
@@ -2185,17 +2248,21 @@ const Masters = () => {
                 <tr key={r.id} className="border-b hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-gray-400 text-xs">{i+1}</td>
                   {renderRow(r).map((v,j)=><td key={j} className="px-4 py-3 text-gray-700">{v}</td>)}
-                  <td className="px-4 py-3">
-                    <span className={`badge ${r.isActive!==false ? 'bg-green-600' : 'bg-gray-400'}`}>
-                      {r.isActive!==false ? 'Active' : 'Inactive'}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
-                      <button onClick={()=>openEdit(r)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-xs font-medium">Edit</button>
-                      <button onClick={()=>setDelId({id:r.id,type:tab})} className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg text-xs font-medium">Delete</button>
-                    </div>
-                  </td>
+                  {!isStateTab && !isCityTab && (
+                    <td className="px-4 py-3">
+                      <span className={`badge ${r.isActive!==false ? 'bg-green-600' : 'bg-gray-400'}`}>
+                        {r.isActive!==false ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                  )}
+                  {!readOnly && (
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        {!isCityTab && <button onClick={()=>openEdit(r)} className="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-lg text-xs font-medium">Edit</button>}
+                        <button onClick={()=>setDelId({id:r.id,type:tab})} className="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-lg text-xs font-medium">Delete</button>
+                      </div>
+                    </td>
+                  )}
                 </tr>
               ))}
             </tbody>

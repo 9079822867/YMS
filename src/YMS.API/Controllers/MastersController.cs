@@ -137,9 +137,25 @@ public class MastersController : ControllerBase
     //  LEGACY convenience GET routes (keep existing API contracts)
     // ══════════════════════════════════════════════════════════
 
+    // ── States & Cities (proper master, cascading) ──
     [HttpGet("states")]
-    public async Task<IActionResult> GetStates()
-        => Ok((await _masterService.GetItemsAsync("State")).Select(i => i.Name));
+    public async Task<IActionResult> GetStates() => Ok(await _masterService.GetStatesAsync());
+
+    [HttpGet("cities")]
+    public async Task<IActionResult> GetCities([FromQuery] string? stateCode, [FromQuery] int? stateId)
+        => Ok(await _masterService.GetCitiesAsync(stateCode, stateId));
+
+    [HttpPost("cities"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> AddCity([FromBody] SaveCityRequest request)
+    {
+        if (!ModelState.IsValid) return BadRequest(ModelState);
+        var (ok, err, city) = await _masterService.AddCityAsync(request);
+        return ok ? Ok(city) : BadRequest(new { message = err });
+    }
+
+    [HttpDelete("cities/{id:int}"), Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteCity(int id)
+        => await _masterService.DeleteCityAsync(id) ? NoContent() : NotFound();
 
     [HttpGet("vehicle-types")]
     public async Task<IActionResult> GetVehicleTypes()
