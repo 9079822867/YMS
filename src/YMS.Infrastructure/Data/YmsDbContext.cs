@@ -15,6 +15,7 @@ public class YmsDbContext : DbContext
     public DbSet<AuditLog> AuditLogs => Set<AuditLog>();
     public DbSet<MasterItem> MasterItems => Set<MasterItem>();
     public DbSet<Project> Projects => Set<Project>();
+    public DbSet<VehicleExitRequest> VehicleExitRequests => Set<VehicleExitRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -40,6 +41,13 @@ public class YmsDbContext : DbContext
         {
             e.HasQueryFilter(u => !u.IsDeleted);
             e.HasIndex(u => u.Email).IsUnique();
+        });
+
+        modelBuilder.Entity<VehicleExitRequest>(e =>
+        {
+            e.HasQueryFilter(x => !x.IsDeleted);
+            e.HasOne(x => x.Vehicle).WithMany().HasForeignKey(x => x.VehicleId);
+            e.HasIndex(x => x.Status);
         });
 
         modelBuilder.Entity<Project>(e =>

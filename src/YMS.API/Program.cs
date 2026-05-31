@@ -32,6 +32,8 @@ builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Client>, Repository<Y
 builder.Services.AddScoped<IRepository<YMS.Domain.Entities.Yard>, Repository<YMS.Domain.Entities.Yard>>();
 builder.Services.AddScoped<IJwtService, JwtService>();
 builder.Services.AddScoped<IExcelService, ExcelService>();
+builder.Services.AddScoped<IExitService, ExitService>();
+builder.Services.AddScoped<IExitRepository, ExitRepository>();
 
 var jwtSecret = builder.Configuration["Jwt:Secret"]
     ?? throw new InvalidOperationException("JWT:Secret is not configured");
