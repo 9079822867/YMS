@@ -45,10 +45,10 @@ const apiFetch = async (url, opts = {}) => {
 const ROLES = ['Admin','Operations','Yard','Client'];
 const ROLE_COLORS = { Admin:'bg-red-600', Operations:'bg-blue-600', Yard:'bg-green-600', Client:'bg-purple-600' };
 const ROLE_PERMS = {
-  Admin:      { dashboard:true,  inventory:true,  newEntry:true,  projects:true,  exits:true,  approveExit:true,  users:true,  masters:true,  deleteVehicle:true  },
-  Operations: { dashboard:true,  inventory:true,  newEntry:true,  projects:true,  exits:true,  approveExit:false, users:false, masters:false, deleteVehicle:false },
-  Yard:       { dashboard:false, inventory:true,  newEntry:true,  projects:true,  exits:true,  approveExit:false, users:false, masters:false, deleteVehicle:false },
-  Client:     { dashboard:false, inventory:true,  newEntry:false, projects:true,  exits:false, approveExit:false, users:false, masters:false, deleteVehicle:false },
+  Admin:      { dashboard:true,  inventory:true,  newEntry:true,  projects:true,  exits:true,  approveExit:true,  transfers:true,  inspections:true,  auctions:true,  audit:true,  users:true,  masters:true,  deleteVehicle:true  },
+  Operations: { dashboard:true,  inventory:true,  newEntry:true,  projects:true,  exits:true,  approveExit:false, transfers:true,  inspections:true,  auctions:true,  audit:false, users:false, masters:false, deleteVehicle:false },
+  Yard:       { dashboard:false, inventory:true,  newEntry:true,  projects:true,  exits:true,  approveExit:false, transfers:true,  inspections:false, auctions:false, audit:false, users:false, masters:false, deleteVehicle:false },
+  Client:     { dashboard:false, inventory:true,  newEntry:false, projects:true,  exits:false, approveExit:false, transfers:false, inspections:false, auctions:false, audit:false, users:false, masters:false, deleteVehicle:false },
 };
 const can = (role, perm) => ROLE_PERMS[role]?.[perm] ?? false;
 
@@ -85,10 +85,14 @@ const Header = ({ user, onLogout, onNav, currentPage }) => {
         <nav className="flex items-center gap-1 ml-2">
           {can(role,'dashboard') && <NavBtn page="dashboard" label="Dashboard"  />}
           {can(role,'inventory') && <NavBtn page="inventory" label="Inventory"  />}
-          {can(role,'projects')  && <NavBtn page="projects"  label="Projects"   />}
-          {can(role,'exits')     && <NavBtn page="exits"     label="Exits"      />}
-          {can(role,'masters')   && <NavBtn page="masters"   label="Masters"    />}
-          {can(role,'users')     && <NavBtn page="users"     label="Users"      />}
+          {can(role,'projects')    && <NavBtn page="projects"    label="Projects"   />}
+          {can(role,'transfers')   && <NavBtn page="transfers"   label="Transfers"  />}
+          {can(role,'inspections') && <NavBtn page="inspections" label="Inspection" />}
+          {can(role,'auctions')    && <NavBtn page="auctions"    label="Auctions"   />}
+          {can(role,'exits')       && <NavBtn page="exits"       label="Exits"      />}
+          {can(role,'masters')     && <NavBtn page="masters"     label="Masters"    />}
+          {can(role,'audit')       && <NavBtn page="audit"       label="Audit"      />}
+          {can(role,'users')       && <NavBtn page="users"       label="Users"      />}
         </nav>
       </div>
       <div className="flex items-center gap-3">
